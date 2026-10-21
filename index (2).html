@@ -1,0 +1,1510 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>DonorCalls Pro — Дальнобойные Видео и Аудио Звонки</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: { sans: ['Inter', 'sans-serif'] },
+      colors: {
+        brand: { 50:'#eef2ff',400:'#818cf8',500:'#6366f1',600:'#4f46e5',700:'#4338ca' }
+      }
+    }
+  }
+}
+</script>
+
+<style>
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: radial-gradient(circle at top right, #1e1b4b, #090d16 65%);
+  color: #f8fafc; height: 100vh; height: 100dvh; overflow: hidden;
+}
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(148,163,184,.25); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,.45); }
+
+@keyframes pulseRing {
+  0% { transform: scale(.95); box-shadow: 0 0 0 0 rgba(99,102,241,.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 22px rgba(99,102,241,0); }
+  100% { transform: scale(.95); box-shadow: 0 0 0 0 rgba(99,102,241,0); }
+}
+@keyframes incomingRing {
+  0% { transform: scale(.96); box-shadow: 0 0 0 0 rgba(16,185,129,.8); }
+  70% { transform: scale(1.03); box-shadow: 0 0 0 26px rgba(16,185,129,0); }
+  100% { transform: scale(.96); box-shadow: 0 0 0 0 rgba(16,185,129,0); }
+}
+@keyframes floatReaction {
+  0% { opacity: 0; transform: translateY(20px) scale(.6); }
+  20% { opacity: 1; transform: translateY(0) scale(1.15); }
+  80% { opacity: 1; transform: translateY(-90px) scale(1); }
+  100% { opacity: 0; transform: translateY(-130px) scale(.8); }
+}
+.call-avatar-pulse { animation: pulseRing 2s infinite; }
+.incoming-avatar-pulse { animation: incomingRing 1.4s infinite; }
+.floating-emoji { position: absolute; bottom: 130px; font-size: 2.5rem; pointer-events: none; z-index: 60; animation: floatReaction 2.4s ease-out forwards; }
+
+.glass-panel { background: rgba(15,23,42,.72); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,.08); }
+.glass-card { background: rgba(30,41,59,.55); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,.07); }
+
+#pipContainer { touch-action: none; transition: box-shadow .2s ease, transform .15s ease; }
+#pipContainer:active { transform: scale(1.03); box-shadow: 0 15px 35px rgba(0,0,0,.65); }
+.eq-bar { width: 4px; border-radius: 999px; background: #34d399; transition: height .1s ease; }
+</style>
+</head>
+<body class="flex items-center justify-center p-0 sm:p-3 md:p-5">
+
+<div id="toastContainer" class="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] flex flex-col gap-2 w-[92%] max-w-sm pointer-events-none"></div>
+
+<!-- Кастомный диалог -->
+<div id="customDialogModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9500] hidden items-center justify-center p-4">
+  <div class="glass-panel rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-white/10">
+    <div class="flex items-center gap-3 mb-3">
+      <div class="w-10 h-10 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-lg">
+        <i id="dialogIcon" class="fas fa-info-circle"></i>
+      </div>
+      <h3 id="dialogTitle" class="text-lg font-bold text-white">Подтверждение</h3>
+    </div>
+    <p id="dialogMessage" class="text-sm text-slate-300 leading-relaxed mb-6"></p>
+    <div class="flex gap-3 justify-end">
+      <button id="dialogCancelBtn" type="button" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold transition">Отмена</button>
+      <button id="dialogConfirmBtn" type="button" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold shadow-lg shadow-indigo-600/30 transition">ОК</button>
+    </div>
+  </div>
+</div>
+
+<!-- ЭКРАН ВХОДА -->
+<div id="authScreen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-xl">
+  <div class="glass-panel w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/10 relative overflow-hidden">
+    <div class="absolute -top-24 -right-24 w-48 h-48 bg-indigo-600/30 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute -bottom-24 -left-24 w-48 h-48 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none"></div>
+
+    <div class="flex flex-col items-center text-center mb-6">
+      <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-600 via-violet-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-indigo-500/30 mb-3">
+        <i class="fas fa-satellite-dish text-2xl text-white"></i>
+      </div>
+      <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-emerald-300 bg-clip-text text-transparent">DonorCalls Pro</h1>
+      <p class="text-xs sm:text-sm text-slate-400 mt-1">Дальнобойные аудио и видеозвонки с системой Ultra-Eco сжатия трафика</p>
+    </div>
+
+    <div class="space-y-4">
+      <div>
+        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Ваш Никнейм (ID для звонков)</label>
+        <div class="relative">
+          <i class="fas fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm"></i>
+          <input id="authName" type="text" maxlength="24" placeholder="Например: AlexPro"
+            class="w-full pl-10 pr-4 py-3.5 rounded-2xl bg-slate-900/90 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 transition">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Пароль</label>
+        <div class="relative">
+          <i class="fas fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm"></i>
+          <input id="authPassword" type="password" placeholder="Введите пароль"
+            class="w-full pl-10 pr-4 py-3.5 rounded-2xl bg-slate-900/90 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 transition">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Аватар</label>
+          <input id="authAvatar" type="text" maxlength="2" placeholder="🚀 или АП"
+            class="w-full px-4 py-3 rounded-2xl bg-slate-900/90 border border-slate-700/80 text-white text-center text-sm uppercase focus:outline-none focus:border-indigo-500 transition">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Режим трафика</label>
+          <select id="authTrafficPreset"
+            class="w-full px-3 py-3 rounded-2xl bg-slate-900/90 border border-slate-700/80 text-emerald-400 font-semibold text-xs focus:outline-none focus:border-indigo-500 transition">
+            <option value="ultra">⚡ Ультра-Эко (110 кбит/с)</option>
+            <option value="eco" selected>🌿 Смарт-Эко (220 кбит/с)</option>
+            <option value="hd">💎 HD Звонки (500 кбит/с)</option>
+          </select>
+        </div>
+      </div>
+
+      <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer px-1">
+        <input id="authRememberMe" type="checkbox" checked class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-0">
+        <span>Запомнить меня на этом устройстве (авто-вход)</span>
+      </label>
+
+      <button id="authSubmitBtn" type="button"
+        class="w-full py-4 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2 transition active:scale-[.99]">
+        <i class="fas fa-bolt"></i>
+        <span>Войти или Создать аккаунт</span>
+      </button>
+
+      <div class="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-white/10">
+        <span class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+          TURN Relay глобальный активен
+        </span>
+        <span>Пользователей: <b id="authUsersCount" class="text-white">...</b></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ГЛАВНЫЙ ИНТЕРФЕЙС -->
+<div id="appContainer" class="hidden w-full h-full max-w-6xl glass-panel sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row relative border border-white/10">
+
+  <div id="minimizedCallBar" class="hidden fixed top-3 left-1/2 -translate-x-1/2 z-[4000] bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 text-white px-4 py-2.5 rounded-full shadow-2xl border border-white/20 items-center gap-3 cursor-pointer">
+    <span class="w-2.5 h-2.5 rounded-full bg-white animate-ping"></span>
+    <div class="text-xs font-bold">
+      <span id="minCallName">Звонок</span> • <span id="minCallTimer" class="font-mono">00:00</span>
+    </div>
+    <span id="minCallTraffic" class="text-[11px] bg-black/25 px-2 py-0.5 rounded-full font-mono">0 KB</span>
+    <button id="restoreCallBtn" type="button" class="px-2.5 py-1 rounded-full bg-white text-slate-900 font-bold text-xs">Развернуть</button>
+  </div>
+
+  <div class="w-full md:w-[380px] lg:w-[410px] flex flex-col h-full border-r border-white/10 bg-slate-900/50">
+    <div class="p-4 border-b border-white/10 flex items-center justify-between gap-2 bg-slate-900/80">
+      <div id="openProfileEditBtn" class="flex items-center gap-3 cursor-pointer p-1.5 rounded-2xl hover:bg-white/5 transition flex-1 min-w-0">
+        <div id="myAvatarBox" class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-md relative shrink-0">
+          <span id="myAvatarText">U</span>
+          <span class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-slate-900"></span>
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-1.5">
+            <h2 id="myNameText" class="font-bold text-sm sm:text-base text-white truncate">Пользователь</h2>
+            <span id="myEcoBadge" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">ЭКО</span>
+          </div>
+          <p id="myStatusSub" class="text-xs text-slate-400 truncate">Нажмите для настроек профиля</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <button id="openTrafficSettingsBtn" type="button" title="Экономия трафика и сеть"
+          class="w-10 h-10 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 flex items-center justify-center transition">
+          <i class="fas fa-leaf"></i>
+        </button>
+        <button id="logoutAppBtn" type="button" title="Выйти из аккаунта"
+          class="w-10 h-10 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 flex items-center justify-center transition">
+          <i class="fas fa-power-off"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="p-3.5 space-y-2.5 border-b border-white/5">
+      <div class="relative flex items-center">
+        <i class="fas fa-search absolute left-3.5 text-slate-400 text-xs"></i>
+        <input id="contactSearchInput" type="text" placeholder="Поиск по имени или быстрый вызов по нику..."
+          class="w-full pl-9 pr-20 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-xs sm:text-sm text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 transition">
+        <button id="quickCallByNickBtn" type="button"
+          class="absolute right-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold transition">Вызов</button>
+      </div>
+
+      <div class="grid grid-cols-3 gap-1.5 bg-slate-950/60 p-1 rounded-xl border border-white/5">
+        <button type="button" data-tab="contacts" class="nav-tab-btn active py-2 rounded-lg text-xs font-bold bg-indigo-600 text-white transition flex items-center justify-center gap-1.5">
+          <i class="fas fa-users"></i><span>Люди</span>
+          <span id="onlineCounterBadge" class="text-[10px] px-1.5 py-0.2 rounded-full bg-white/20">0</span>
+        </button>
+        <button type="button" data-tab="favorites" class="nav-tab-btn py-2 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition flex items-center justify-center gap-1.5">
+          <i class="fas fa-star text-amber-400"></i><span>Избранные</span>
+        </button>
+        <button type="button" data-tab="history" class="nav-tab-btn py-2 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition flex items-center justify-center gap-1.5">
+          <i class="fas fa-clock-rotate-left"></i><span>Журнал</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="leftListContainer" class="flex-1 overflow-y-auto p-3 space-y-2"></div>
+
+    <div class="px-4 py-2.5 bg-slate-950/80 border-t border-white/10 flex items-center justify-between text-[11px] text-slate-400">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span id="footerNetworkMode">TURN 443 TCP/UDP активен</span>
+      </div>
+      <button id="clearRamCacheBtn" type="button" class="text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1">
+        <i class="fas fa-broom"></i> Очистить кэш
+      </button>
+    </div>
+  </div>
+
+  <div id="rightDashboard" class="hidden md:flex flex-1 flex-col justify-between p-6 lg:p-8 bg-gradient-to-br from-slate-900/40 via-slate-950/60 to-indigo-950/30 relative overflow-y-auto">
+    <div id="selectedContactCard" class="glass-card rounded-3xl p-6 border border-white/10 shadow-xl">
+      <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+        <div class="flex items-center gap-4">
+          <div id="detailAvatar" class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-2xl font-extrabold text-white shadow-lg">📡</div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 id="detailName" class="text-xl font-extrabold text-white">Центр дальней связи</h2>
+              <span id="detailStatusBadge" class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold">Готов к вызову</span>
+            </div>
+            <p id="detailBio" class="text-xs sm:text-sm text-slate-400 mt-1">Выберите любого пользователя слева для мгновенного аудио- или видеозвонка на любом расстоянии.</p>
+          </div>
+        </div>
+        <div id="detailActionButtons" class="hidden items-center gap-2.5 w-full lg:w-auto">
+          <button id="detailAudioCallBtn" type="button"
+            class="flex-1 lg:flex-initial px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 transition">
+            <i class="fas fa-phone"></i><span>Аудиозвонок</span>
+          </button>
+          <button id="detailVideoCallBtn" type="button"
+            class="flex-1 lg:flex-initial px-5 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition">
+            <i class="fas fa-video"></i><span>Видеозвонок</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 my-6">
+      <div class="glass-card rounded-2xl p-4 border border-white/10">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold text-slate-400">Профиль сжатия</span>
+          <i class="fas fa-gauge-simple-high text-emerald-400"></i>
+        </div>
+        <div id="statPresetTitle" class="text-base font-extrabold text-white">Смарт-Эко (360p)</div>
+        <p id="statPresetDesc" class="text-xs text-slate-400 mt-1">До ~1.5 МБ в минуту на видео и ~180 КБ в минуту на голос.</p>
+      </div>
+      <div class="glass-card rounded-2xl p-4 border border-white/10">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold text-slate-400">Дальнобойный сервер</span>
+          <i class="fas fa-globe text-indigo-400"></i>
+        </div>
+        <div class="text-base font-extrabold text-white">Metered Global Relay</div>
+        <p class="text-xs text-slate-400 mt-1">Порты 443 (TLS/TCP) и 80 обходят любые блокировки и NAT.</p>
+      </div>
+      <div class="glass-card rounded-2xl p-4 border border-white/10">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold text-slate-400">Расход за сессию</span>
+          <i class="fas fa-chart-pie text-amber-400"></i>
+        </div>
+        <div id="statTotalSessionSaved" class="text-base font-extrabold text-white">0.00 МБ</div>
+        <p class="text-xs text-slate-400 mt-1">Авто-очистка буфера памяти после каждого звонка.</p>
+      </div>
+    </div>
+
+    <div class="glass-card rounded-3xl p-5 border border-white/10">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fas fa-sliders text-indigo-400"></i>Режим экономии трафика и ОЗУ</h3>
+          <p class="text-xs text-slate-400">Можно переключать даже прямо во время разговора</p>
+        </div>
+        <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+          <input id="forceTurnToggle" type="checkbox" class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-0">
+          <span>Только через TURN-сервер (100% пробиваемость)</span>
+        </label>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <button type="button" data-preset="ultra" class="preset-card-btn p-3.5 rounded-2xl border border-white/10 bg-slate-900/60 hover:bg-slate-800/80 text-left transition">
+          <div class="flex items-center justify-between"><span class="text-xs font-extrabold text-emerald-400">⚡ УЛЬТРА-ЭКО</span><span class="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md">~110 kbps</span></div>
+          <p class="text-[11px] text-slate-400 mt-1">240p • 12 кадр/с. Работает даже при слабом 2G/3G сигнале.</p>
+        </button>
+        <button type="button" data-preset="eco" class="preset-card-btn p-3.5 rounded-2xl border border-indigo-500 bg-indigo-600/15 text-left transition">
+          <div class="flex items-center justify-between"><span class="text-xs font-extrabold text-indigo-300">🌿 СМАРТ-ЭКО</span><span class="text-[10px] font-mono bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-md">~220 kbps</span></div>
+          <p class="text-[11px] text-slate-400 mt-1">360p • 15 кадр/с. Идеальный баланс четкости и малого веса.</p>
+        </button>
+        <button type="button" data-preset="hd" class="preset-card-btn p-3.5 rounded-2xl border border-white/10 bg-slate-900/60 hover:bg-slate-800/80 text-left transition">
+          <div class="flex items-center justify-between"><span class="text-xs font-extrabold text-amber-300">💎 HD КАЧЕСТВО</span><span class="text-[10px] font-mono bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-md">~500 kbps</span></div>
+          <p class="text-[11px] text-slate-400 mt-1">480p/720p • 24 кадр/с. Для стабильного Wi-Fi или 4G.</p>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- НАСТРОЙКИ -->
+<div id="settingsModal" class="fixed inset-0 bg-black/75 backdrop-blur-md z-[6000] hidden items-center justify-center p-4">
+  <div class="glass-panel w-full max-w-md rounded-3xl p-6 border border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-lg font-extrabold text-white flex items-center gap-2"><i class="fas fa-sliders text-indigo-400"></i> Настройки и Трафик</h3>
+      <button type="button" id="closeSettingsModalBtn" class="w-8 h-8 rounded-full bg-white/10 text-slate-300 hover:text-white flex items-center justify-center"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-xs font-semibold text-slate-400 mb-1">Аватар (Эмодзи или 2 буквы)</label>
+        <input id="editAvatarInput" type="text" maxlength="2" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white text-sm uppercase">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-400 mb-1">Статус / О себе</label>
+        <input id="editBioInput" type="text" maxlength="70" placeholder="На связи 24/7..." class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white text-sm">
+      </div>
+      <div class="pt-2 border-t border-white/10">
+        <label class="block text-xs font-semibold text-slate-400 mb-2">Профиль экономии трафика</label>
+        <select id="modalTrafficSelect" class="w-full px-4 py-3 rounded-xl bg-slate-900 border border-white/10 text-white text-sm font-semibold">
+          <option value="ultra">⚡ Ультра-Эко (240p, 12fps, ~110 кбит/с)</option>
+          <option value="eco">🌿 Смарт-Эко (360p, 15fps, ~220 кбит/с)</option>
+          <option value="hd">💎 HD Качество (480p, 24fps, ~500 кбит/с)</option>
+        </select>
+      </div>
+      <div class="flex items-center justify-between py-2">
+        <div>
+          <div class="text-sm font-semibold text-white">Принудительный TURN Relay</div>
+          <div class="text-xs text-slate-400">Для звонков между разными странами и мобильными сетями</div>
+        </div>
+        <input id="modalForceTurnCheck" type="checkbox" class="w-5 h-5 rounded bg-slate-900 border-white/20 text-indigo-600">
+      </div>
+      <div class="flex items-center justify-between py-2">
+        <div>
+          <div class="text-sm font-semibold text-white">Авто-отключение видео при слабой сети</div>
+          <div class="text-xs text-slate-400">Сохраняет голос чистым при падении скорости</div>
+        </div>
+        <input id="modalAutoAudioFallback" type="checkbox" checked class="w-5 h-5 rounded bg-slate-900 border-white/20 text-indigo-600">
+      </div>
+      <button id="saveSettingsBtn" type="button" class="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-lg shadow-indigo-600/30 transition">💾 Сохранить настройки</button>
+    </div>
+  </div>
+</div>
+
+<!-- ОВЕРЛЕЙ ЗВОНКА -->
+<div id="callOverlay" class="fixed inset-0 z-[5000] bg-slate-950 hidden flex-col justify-between overflow-hidden">
+  <video id="remoteVideo" autoplay playsinline class="absolute inset-0 w-full h-full object-cover bg-slate-950 hidden"></video>
+  <div class="absolute inset-0 bg-gradient-to-b from-black/70 via-transparent to-black/85 pointer-events-none z-10"></div>
+  <div id="callReactionsLayer" class="absolute inset-0 pointer-events-none z-40 overflow-hidden"></div>
+
+  <div class="relative z-30 p-4 sm:p-6 flex items-center justify-between gap-2">
+    <div class="flex items-center gap-2.5">
+      <button id="minimizeCallBtn" type="button" title="Свернуть звонок"
+        class="w-10 h-10 rounded-2xl bg-white/10 hover:bg-white/20 backdrop-blur-md text-white flex items-center justify-center transition"><i class="fas fa-compress-alt"></i></button>
+      <div class="px-3.5 py-1.5 rounded-2xl bg-black/45 backdrop-blur-md border border-white/10 flex items-center gap-2">
+        <span id="callSignalDot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+        <span id="callTopStatus" class="text-xs sm:text-sm font-bold text-white">Соединение...</span>
+        <span id="callTimerText" class="text-xs sm:text-sm font-mono text-emerald-400 font-bold hidden">00:00</span>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <div id="liveTrafficPill" class="px-3 py-1.5 rounded-2xl bg-black/50 backdrop-blur-md border border-emerald-500/30 text-[11px] font-mono text-emerald-300 flex items-center gap-2">
+        <i class="fas fa-leaf text-emerald-400"></i>
+        <span id="liveBitrateText">0 kbps</span>
+        <span class="text-slate-500">|</span>
+        <span id="liveBytesText">0.00 MB</span>
+      </div>
+      <button id="toggleStatsDrawerBtn" type="button" title="Подробная диагностика сети"
+        class="w-10 h-10 rounded-2xl bg-white/10 hover:bg-white/20 backdrop-blur-md text-slate-200 flex items-center justify-center text-sm transition"><i class="fas fa-signal"></i></button>
+    </div>
+  </div>
+
+  <div id="callDiagnosticsDrawer" class="hidden relative z-30 mx-4 sm:mx-auto sm:max-w-md glass-panel rounded-2xl p-3.5 text-xs border border-white/15 shadow-2xl">
+    <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-white/10">
+      <span class="font-bold text-indigo-300 flex items-center gap-1.5"><i class="fas fa-microchip"></i> Диагностика канала WebRTC</span>
+      <button id="iceRestartBtn" type="button" class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px]">🔄 Пробить связь (ICE)</button>
+    </div>
+    <div class="grid grid-cols-2 gap-2 font-mono text-[11px] text-slate-300">
+      <div>Маршрут: <b id="diagRoute" class="text-white">Ожидание...</b></div>
+      <div>Пинг (RTT): <b id="diagRtt" class="text-emerald-400">-- мс</b></div>
+      <div>Состояние ICE: <b id="diagIceState" class="text-amber-300">new</b></div>
+      <div>Режим сжатия: <b id="diagPresetName" class="text-indigo-300">ECO</b></div>
+    </div>
+    <div class="mt-2.5 pt-2 border-t border-white/10 flex items-center justify-between gap-1">
+      <span class="text-[11px] text-slate-400">Сжатие на лету:</span>
+      <div class="flex gap-1">
+        <button type="button" data-live-preset="ultra" class="live-preset-btn px-2 py-1 rounded bg-slate-800 text-slate-300 text-[10px] font-bold">Ультра-Эко</button>
+        <button type="button" data-live-preset="eco" class="live-preset-btn px-2 py-1 rounded bg-indigo-600 text-white text-[10px] font-bold">Смарт-Эко</button>
+        <button type="button" data-live-preset="hd" class="live-preset-btn px-2 py-1 rounded bg-slate-800 text-slate-300 text-[10px] font-bold">HD</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="callCenterInfo" class="relative z-20 flex flex-col items-center justify-center px-4 my-auto text-center">
+    <div id="callAvatarCircle" class="w-32 h-32 sm:w-36 sm:h-36 rounded-full bg-gradient-to-tr from-indigo-600 via-violet-600 to-emerald-400 flex items-center justify-center text-5xl font-extrabold text-white shadow-2xl call-avatar-pulse mb-4 border-4 border-white/15">👤</div>
+    <h2 id="callPartnerName" class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Имя абонента</h2>
+    <p id="callPartnerSub" class="text-xs sm:text-sm text-slate-300 mt-1 flex items-center gap-1.5"><i class="fas fa-shield-halved text-emerald-400"></i><span>Защищенный канал P2P / TURN</span></p>
+    <div id="inCallQuickMessageBanner" class="hidden mt-3 px-4 py-2 rounded-2xl bg-white/15 backdrop-blur-md text-white text-xs sm:text-sm font-medium border border-white/15 max-w-xs animate-bounce"></div>
+    <div class="mt-6 w-full max-w-xs glass-panel px-4 py-3 rounded-2xl border border-white/10">
+      <div class="flex items-center justify-between text-xs text-slate-300 mb-1.5">
+        <span class="flex items-center gap-1.5 font-semibold"><i class="fas fa-volume-high text-indigo-400"></i> Усиление звука</span>
+        <span id="callVolumeLabel" class="font-mono font-bold text-emerald-400">100%</span>
+      </div>
+      <input id="callVolumeSlider" type="range" min="0" max="200" value="100" class="w-full accent-indigo-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+    </div>
+  </div>
+
+  <div id="pipContainer" class="hidden absolute top-20 right-4 z-30 w-28 h-40 sm:w-36 sm:h-48 rounded-2xl overflow-hidden border-2 border-white/30 shadow-2xl bg-slate-900 cursor-move">
+    <video id="localVideo" autoplay playsinline muted class="w-full h-full object-cover"></video>
+    <div class="absolute bottom-1.5 left-2 right-2 flex items-center justify-between text-[10px] text-white/90 bg-black/50 backdrop-blur-sm px-2 py-0.5 rounded-md"><span>Вы</span><i class="fas fa-arrows-up-down-left-right opacity-75"></i></div>
+  </div>
+
+  <div class="relative z-30 p-4 sm:p-6 flex flex-col items-center gap-3">
+    <div id="inCallReactionsBar" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/45 backdrop-blur-md border border-white/10">
+      <button type="button" data-react="👋" class="react-btn text-lg hover:scale-125 transition px-1">👋</button>
+      <button type="button" data-react="❤️" class="react-btn text-lg hover:scale-125 transition px-1">❤️</button>
+      <button type="button" data-react="🔥" class="react-btn text-lg hover:scale-125 transition px-1">🔥</button>
+      <button type="button" data-react="👍" class="react-btn text-lg hover:scale-125 transition px-1">👍</button>
+      <button type="button" data-react="😂" class="react-btn text-lg hover:scale-125 transition px-1">😂</button>
+      <div class="h-4 w-[1px] bg-white/15 mx-1"></div>
+      <input id="inCallNoteInput" type="text" maxlength="50" placeholder="Быстрая записка..." class="bg-transparent text-xs text-white placeholder-slate-400 focus:outline-none w-28 sm:w-36">
+      <button id="sendInCallNoteBtn" type="button" class="text-indigo-400 hover:text-indigo-300 text-xs font-bold px-1"><i class="fas fa-paper-plane"></i></button>
+    </div>
+    <div id="activeCallControls" class="flex items-center justify-center gap-3 sm:gap-4 flex-wrap">
+      <button id="btnToggleMic" type="button" class="w-13 h-13 sm:w-14 sm:h-14 p-3.5 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md text-white flex flex-col items-center justify-center transition shadow-lg"><i class="fas fa-microphone text-lg"></i></button>
+      <button id="btnToggleCam" type="button" class="w-13 h-13 sm:w-14 sm:h-14 p-3.5 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md text-white flex flex-col items-center justify-center transition shadow-lg"><i class="fas fa-video text-lg"></i></button>
+      <button id="btnSwitchCam" type="button" title="Перевернуть камеру" class="w-13 h-13 sm:w-14 sm:h-14 p-3.5 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md text-white flex flex-col items-center justify-center transition shadow-lg"><i class="fas fa-camera-rotate text-lg"></i></button>
+      <button id="btnShareScreen" type="button" title="Демонстрация экрана" class="w-13 h-13 sm:w-14 sm:h-14 p-3.5 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md text-white flex flex-col items-center justify-center transition shadow-lg"><i class="fas fa-desktop text-lg"></i></button>
+      <button id="btnAcceptCall" type="button" class="hidden w-16 h-16 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white items-center justify-center text-2xl shadow-xl shadow-emerald-500/40 transition animate-bounce"><i class="fas fa-phone"></i></button>
+      <button id="btnHangupCall" type="button" class="w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center text-2xl shadow-xl shadow-rose-600/40 transition active:scale-95"><i class="fas fa-phone-slash"></i></button>
+    </div>
+  </div>
+  <audio id="remoteAudio" autoplay playsinline></audio>
+</div>
+
+<script>
+/* =========================================================
+   1. FIREBASE + TURN
+   ========================================================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyCf1UO6hrlYXR2GYcgGZUfsbit4Zav1m4E",
+  authDomain: "trolldonor.firebaseapp.com",
+  databaseURL: "https://trolldonor-default-rtdb.firebaseio.com",
+  projectId: "trolldonor",
+  storageBucket: "trolldonor.firebasestorage.app",
+  messagingSenderId: "761197257675",
+  appId: "1:761197257675:web:53dc596cf349d0cd474c4e",
+  measurementId: "G-B658V7L7ES"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+const METERED_ICE_LIST = [
+  { urls:'turns:global.relay.metered.ca:443?transport=tcp', username:'ea04614136046595f92339d9', credential:'/f3WYIMo8m6vYy/B' },
+  { urls:'turn:global.relay.metered.ca:443', username:'ea04614136046595f92339d9', credential:'/f3WYIMo8m6vYy/B' },
+  { urls:'turn:global.relay.metered.ca:80?transport=tcp', username:'ea04614136046595f92339d9', credential:'/f3WYIMo8m6vYy/B' },
+  { urls:'turn:global.relay.metered.ca:80', username:'ea04614136046595f92339d9', credential:'/f3WYIMo8m6vYy/B' },
+  { urls:'stun:stun.relay.metered.ca:80' }
+];
+
+/* =========================================================
+   2. ПРЕСЕТЫ ТРАФИКА
+   ========================================================= */
+const TRAFFIC_PRESETS = {
+  ultra: { id:'ultra', badge:'⚡ УЛЬТРА-ЭКО', title:'Ультра-Эко (240p @ 12fps)', desc:'Минимальный расход: ~0.8 МБ/мин видео, ~110 КБ/мин аудио',
+    videoConstraints:{ width:{ideal:240,max:320}, height:{ideal:180,max:240}, frameRate:{ideal:12,max:15} },
+    videoMaxBitrate:110000, audioMaxBitrate:20000, sdpVideoAs:115 },
+  eco: { id:'eco', badge:'🌿 СМАРТ-ЭКО', title:'Смарт-Эко (360p @ 15fps)', desc:'Оптимальное сжатие: ~1.5 МБ/мин видео, ~180 КБ/мин аудио',
+    videoConstraints:{ width:{ideal:320,max:480}, height:{ideal:240,max:360}, frameRate:{ideal:15,max:20} },
+    videoMaxBitrate:220000, audioMaxBitrate:28000, sdpVideoAs:240 },
+  hd: { id:'hd', badge:'💎 HD', title:'HD Качество (480p/720p @ 24fps)', desc:'Повышенная четкость: ~3.5 МБ/мин видео, ~300 КБ/мин аудио',
+    videoConstraints:{ width:{ideal:640,max:854}, height:{ideal:480,max:480}, frameRate:{ideal:24,max:25} },
+    videoMaxBitrate:500000, audioMaxBitrate:40000, sdpVideoAs:520 }
+};
+
+/* =========================================================
+   3. СОСТОЯНИЕ + ХРАНИЛИЩЕ
+   ========================================================= */
+const LS_USER = 'dc_user';          // сохранённый профиль
+const LS_REMEMBER = 'dc_remember';  // флаг авто-входа
+
+const state = {
+  currentUser: null,
+  users: {},
+  favorites: JSON.parse(localStorage.getItem('dc_favorites') || '{}'),
+  callHistory: JSON.parse(localStorage.getItem('dc_history') || '[]'),
+  activeTab: 'contacts',
+  selectedContactId: null,
+  trafficPreset: localStorage.getItem('dc_preset') || 'eco',
+  forceTurn: localStorage.getItem('dc_force_turn') === 'true',
+  autoAudioFallback: localStorage.getItem('dc_auto_fallback') !== 'false',
+  sessionTotalBytes: 0
+};
+
+const $ = id => document.getElementById(id);
+
+function esc(s){ if(!s) return ''; return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+function showToast(msg, type='info'){
+  const c = $('toastContainer'); if(!c) return;
+  const el = document.createElement('div');
+  const colors = {
+    info:'border-indigo-500/50 bg-slate-900/95 text-white',
+    success:'border-emerald-500/50 bg-slate-900/95 text-emerald-300',
+    error:'border-rose-500/50 bg-slate-900/95 text-rose-300'
+  };
+  el.className = `px-4 py-3 rounded-2xl border shadow-2xl backdrop-blur-md text-xs sm:text-sm font-semibold flex items-center gap-2.5 pointer-events-auto transition-all ${colors[type]||colors.info}`;
+  el.innerHTML = `<i class="fas ${type==='error'?'fa-circle-exclamation text-rose-400':type==='success'?'fa-circle-check text-emerald-400':'fa-bell text-indigo-400'}"></i><span>${msg}</span>`;
+  c.appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translateY(-10px)'; setTimeout(()=>el.remove(),250); }, 3200);
+}
+
+function showConfirmDialog({ title='Подтверждение', message='', confirmText='Да', cancelText='Отмена', onlyOk=false }){
+  return new Promise(resolve=>{
+    const m = $('customDialogModal');
+    $('dialogTitle').innerText = title;
+    $('dialogMessage').innerText = message;
+    const ok = $('dialogConfirmBtn'), cancel = $('dialogCancelBtn');
+    ok.innerText = confirmText; cancel.innerText = cancelText;
+    cancel.style.display = onlyOk ? 'none' : 'inline-block';
+    m.classList.remove('hidden'); m.classList.add('flex');
+    const done = r => { m.classList.add('hidden'); m.classList.remove('flex'); ok.onclick=null; cancel.onclick=null; resolve(r); };
+    ok.onclick = () => done(true);
+    cancel.onclick = () => done(false);
+  });
+}
+
+/* =========================================================
+   4. ХЕШ ПАРОЛЯ (SHA-256)
+   ========================================================= */
+async function sha256(text){
+  try {
+    const buf = new TextEncoder().encode(text);
+    const hash = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  } catch(e) {
+    // fallback если WebCrypto недоступен (старый браузер)
+    let h = 0; for (let i=0;i<text.length;i++){ h = ((h<<5)-h)+text.charCodeAt(i); h|=0; }
+    return 'fb_' + Math.abs(h).toString(16);
+  }
+}
+
+/* =========================================================
+   5. АУДИО СИНТЕЗ
+   ========================================================= */
+let synthCtx=null, ringtoneTimer=null, dialtoneTimer=null, remoteGainCtx=null, remoteGainNode=null, remoteMediaSource=null;
+
+function ensureAudioContext(){
+  try{
+    const A = window.AudioContext || window.webkitAudioContext;
+    if(!A) return null;
+    if(!synthCtx) synthCtx = new A();
+    if(synthCtx.state==='suspended') synthCtx.resume();
+    return synthCtx;
+  }catch(e){ return null; }
+}
+function playTone(freq, durMs, type='sine', gainVal=0.25){
+  const ctx = ensureAudioContext(); if(!ctx) return;
+  try{
+    const osc=ctx.createOscillator(), g=ctx.createGain();
+    osc.type=type; osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    g.gain.setValueAtTime(0.001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(gainVal, ctx.currentTime+0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+durMs/1000);
+    osc.connect(g); g.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime+durMs/1000+0.02);
+  }catch(e){}
+}
+function startIncomingRingtone(){
+  stopAllTones();
+  const p = ()=>{
+    playTone(659.25,180,'sine',0.35);
+    setTimeout(()=>playTone(880,180,'sine',0.35),210);
+    setTimeout(()=>playTone(1046.5,280,'sine',0.35),420);
+    try{ if(navigator.vibrate) navigator.vibrate([400,200,400]); }catch(e){}
+  };
+  p(); ringtoneTimer = setInterval(p,2000);
+}
+function startOutgoingDialtone(){
+  stopAllTones();
+  const p = ()=>playTone(425,750,'sine',0.2);
+  p(); dialtoneTimer = setInterval(p,2800);
+}
+function stopAllTones(){
+  if(ringtoneTimer){ clearInterval(ringtoneTimer); ringtoneTimer=null; }
+  if(dialtoneTimer){ clearInterval(dialtoneTimer); dialtoneTimer=null; }
+  try{ if(navigator.vibrate) navigator.vibrate(0); }catch(e){}
+}
+
+function applyRemoteAudioBoost(stream, percent){
+  const audioEl = $('remoteAudio');
+  const n = Math.max(0, Math.min(200, Number(percent)||100));
+  $('callVolumeLabel').innerText = `${n}%`;
+  if(audioEl) audioEl.volume = Math.min(1, n/100);
+  try{
+    if(!stream || stream.getAudioTracks().length===0) return;
+    const A = window.AudioContext || window.webkitAudioContext; if(!A) return;
+    if(!remoteGainCtx) remoteGainCtx = new A();
+    if(remoteGainCtx.state==='suspended') remoteGainCtx.resume();
+    if(!remoteMediaSource){
+      remoteMediaSource = remoteGainCtx.createMediaStreamSource(stream);
+      remoteGainNode = remoteGainCtx.createGain();
+      remoteMediaSource.connect(remoteGainNode);
+      remoteGainNode.connect(remoteGainCtx.destination);
+    }
+    if(remoteGainNode){
+      const extra = n>100 ? (n-100)/100 : 0;
+      remoteGainNode.gain.setValueAtTime(extra, remoteGainCtx.currentTime);
+    }
+  }catch(e){}
+}
+function cleanupAudioBooster(){
+  remoteMediaSource=null; remoteGainNode=null;
+  if(remoteGainCtx){ try{ remoteGainCtx.close(); }catch(e){} remoteGainCtx=null; }
+}
+
+/* =========================================================
+   6. СОХРАНЕНИЕ / ЗАГРУЗКА ПРОФИЛЯ
+   ========================================================= */
+function saveProfileLocal(user, remember){
+  try {
+    localStorage.setItem(LS_USER, JSON.stringify(user));
+    localStorage.setItem(LS_REMEMBER, remember ? 'true' : 'false');
+  } catch(e){}
+}
+function clearProfileLocal(){
+  try { localStorage.removeItem(LS_USER); localStorage.removeItem(LS_REMEMBER); } catch(e){}
+}
+function loadProfileLocal(){
+  try {
+    const remember = localStorage.getItem(LS_REMEMBER) === 'true';
+    const raw = localStorage.getItem(LS_USER);
+    if(!raw) return null;
+    const u = JSON.parse(raw);
+    if(!u || !u.id) return null;
+    return { user: u, remember };
+  } catch(e){ return null; }
+}
+
+/* =========================================================
+   7. СИНХРОНИЗАЦИЯ FIREBASE
+   ========================================================= */
+db.ref('users').on('value', snap=>{
+  const val = snap.val() || {};
+  state.users = val;
+  const c = $('authUsersCount'); if(c) c.innerText = Object.keys(val).length;
+  if(state.currentUser){
+    renderLeftList();
+    if(state.selectedContactId) renderSelectedContactCard(state.selectedContactId);
+  }
+});
+
+/* =========================================================
+   8. ВХОД / РЕГИСТРАЦИЯ
+   ========================================================= */
+async function handleAuth(){
+  const rawName = ($('authName').value||'').trim();
+  const password = ($('authPassword').value||'').trim();
+  const rawAvatar = ($('authAvatar').value||'').trim();
+  const preset = $('authTrafficPreset').value || 'eco';
+  const remember = $('authRememberMe').checked;
+
+  const cleanId = rawName.replace(/[.#$\[\]\/]/g,'');
+  if(!cleanId || !password){ showToast('Введите ваш Никнейм и Пароль','error'); return; }
+
+  const avatar = (rawAvatar || cleanId.slice(0,2)).toUpperCase();
+  const passHash = await sha256(password);
+
+  state.trafficPreset = preset;
+  localStorage.setItem('dc_preset', preset);
+
+  try {
+    const snap = await db.ref('users/'+cleanId).once('value');
+    let userObj;
+    if(snap.exists()){
+      const u = snap.val();
+      // поддержка старых профилей с открытым паролем
+      let storedHash = u.passwordHash || null;
+      if(!storedHash && u.password){ storedHash = await sha256(u.password); }
+      if(storedHash && storedHash !== passHash){
+        showToast('Неверный пароль для этого никнейма','error');
+        return;
+      }
+      userObj = {
+        id: cleanId,
+        name: u.name || cleanId,
+        avatar: u.avatar || avatar,
+        bio: u.bio || 'На связи в DonorCalls Pro'
+      };
+      await db.ref('users/'+cleanId).update({
+        status:'online', lastSeen: Date.now(),
+        avatar: userObj.avatar,
+        passwordHash: storedHash || passHash,
+        password: null // стираем открытый пароль, если был
+      });
+    } else {
+      userObj = {
+        id: cleanId, name: cleanId, avatar,
+        bio: 'На связи в DonorCalls Pro'
+      };
+      await db.ref('users/'+cleanId).set({
+        ...userObj,
+        passwordHash: passHash,
+        status:'online',
+        createdAt: Date.now(),
+        lastSeen: Date.now()
+      });
+    }
+
+    // СОХРАНЯЕМ ПРОФИЛЬ ЛОКАЛЬНО -> при следующем открытии авто-вход
+    saveProfileLocal(userObj, remember);
+    state.currentUser = userObj;
+    launchMainApp();
+  } catch(err){
+    showToast('Ошибка подключения к Firebase: '+err.message,'error');
+  }
+}
+
+function launchMainApp(){
+  $('authScreen').classList.add('hidden');
+  $('appContainer').classList.remove('hidden');
+  updateMyHeaderUI();
+  updatePresetUI();
+  setupFirebasePresence();
+  renderLeftList();
+  CallEngine.listenForIncomingCalls();
+  if(state.currentUser) showToast(`Добро пожаловать, ${state.currentUser.name}!`, 'success');
+}
+
+function setupFirebasePresence(){
+  if(!state.currentUser) return;
+  const ref = db.ref('users/'+state.currentUser.id);
+  db.ref('.info/connected').on('value', snap=>{
+    if(snap.val()===true){
+      ref.onDisconnect().update({ status:'offline', lastSeen: firebase.database.ServerValue.TIMESTAMP });
+      ref.update({ status:'online', lastSeen: Date.now() });
+    }
+  });
+}
+
+function updateMyHeaderUI(){
+  if(!state.currentUser) return;
+  $('myAvatarText').innerText = state.currentUser.avatar || state.currentUser.name.slice(0,2).toUpperCase();
+  $('myNameText').innerText = state.currentUser.name;
+  $('myStatusSub').innerText = state.currentUser.bio || 'На связи в DonorCalls Pro';
+}
+
+function updatePresetUI(){
+  const p = TRAFFIC_PRESETS[state.trafficPreset] || TRAFFIC_PRESETS.eco;
+  $('myEcoBadge').innerText = p.id.toUpperCase();
+  $('statPresetTitle').innerText = p.title;
+  $('statPresetDesc').innerText = p.desc;
+  $('forceTurnToggle').checked = state.forceTurn;
+  $('modalForceTurnCheck').checked = state.forceTurn;
+  $('modalTrafficSelect').value = p.id;
+  $('footerNetworkMode').innerText = state.forceTurn
+    ? 'Принудительный TURN Relay (Макс. дальность)'
+    : 'Авто STUN + TURN 443/80 (Эко-маршрут)';
+  document.querySelectorAll('.preset-card-btn').forEach(b=>{
+    const a = b.dataset.preset===p.id;
+    b.classList.toggle('border-indigo-500', a);
+    b.classList.toggle('bg-indigo-600/15', a);
+    b.classList.toggle('border-white/10', !a);
+  });
+  document.querySelectorAll('.live-preset-btn').forEach(b=>{
+    const a = b.dataset.livePreset===p.id;
+    b.className = `live-preset-btn px-2 py-1 rounded text-[10px] font-bold ${a?'bg-indigo-600 text-white':'bg-slate-800 text-slate-300'}`;
+  });
+}
+
+/* =========================================================
+   9. СПИСКИ / ЖУРНАЛ / ИЗБРАННОЕ
+   ========================================================= */
+function toggleFavorite(uid){
+  if(state.favorites[uid]) delete state.favorites[uid]; else state.favorites[uid]=true;
+  localStorage.setItem('dc_favorites', JSON.stringify(state.favorites));
+  renderLeftList();
+}
+function addCallHistoryItem({uid,name,type,direction,durationSec}){
+  const e = { id:'h_'+Date.now(), uid, name:name||uid, type:type||'audio', direction, durationSec:durationSec||0, ts:Date.now() };
+  state.callHistory.unshift(e);
+  if(state.callHistory.length>40) state.callHistory.length=40;
+  localStorage.setItem('dc_history', JSON.stringify(state.callHistory));
+  if(state.activeTab==='history') renderLeftList();
+}
+
+function renderLeftList(){
+  const c = $('leftListContainer');
+  if(!c || !state.currentUser) return;
+  const q = ($('contactSearchInput').value||'').trim().toLowerCase();
+  const others = Object.keys(state.users).filter(uid=>uid!==state.currentUser.id);
+  const onlineCount = others.filter(uid=>{
+    const s = state.users[uid]?.status;
+    return s==='online' || s==='in_call';
+  }).length;
+  $('onlineCounterBadge').innerText = onlineCount;
+
+  if(state.activeTab==='history'){
+    if(state.callHistory.length===0){
+      c.innerHTML = `<div class="text-center py-12 px-4 text-slate-400"><i class="fas fa-clock-rotate-left text-3xl mb-2 opacity-40"></i><p class="text-sm font-semibold">Журнал вызовов пуст</p><p class="text-xs opacity-75 mt-1">Здесь появятся ваши входящие и исходящие звонки</p></div>`;
+      return;
+    }
+    c.innerHTML = state.callHistory.map(h=>{
+      const icon = h.direction==='missed' ? '<i class="fas fa-phone-slash text-rose-400"></i>'
+        : h.direction==='incoming' ? '<i class="fas fa-arrow-down-left text-emerald-400"></i>'
+        : '<i class="fas fa-arrow-up-right text-indigo-400"></i>';
+      const t = new Date(h.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+      const d = h.durationSec>0 ? `${Math.floor(h.durationSec/60)}:${String(h.durationSec%60).padStart(2,'0')}` : 'Без ответа';
+      return `<div class="glass-card p-3 rounded-2xl flex items-center justify-between gap-3 hover:bg-slate-800/70 transition">
+        <div class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer" data-select-uid="${esc(h.uid)}">
+          <div class="w-11 h-11 rounded-xl bg-slate-800 flex items-center justify-center text-base font-bold text-white shrink-0">${esc((h.name||'?').slice(0,2).toUpperCase())}</div>
+          <div class="min-w-0 flex-1">
+            <div class="font-bold text-sm text-white truncate">${esc(h.name)}</div>
+            <div class="text-xs text-slate-400 flex items-center gap-1.5">${icon}<span>${h.type==='video'?'Видео':'Аудио'} • ${d} • ${t}</span></div>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <button type="button" data-call-audio="${esc(h.uid)}" class="w-9 h-9 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-white flex items-center justify-center transition"><i class="fas fa-phone text-xs"></i></button>
+          <button type="button" data-call-video="${esc(h.uid)}" class="w-9 h-9 rounded-xl bg-indigo-500/20 hover:bg-indigo-500 text-indigo-400 hover:text-white flex items-center justify-center transition"><i class="fas fa-video text-xs"></i></button>
+        </div>
+      </div>`;
+    }).join('');
+    return;
+  }
+
+  let ids = others.filter(uid=>{
+    if(state.activeTab==='favorites' && !state.favorites[uid]) return false;
+    const u = state.users[uid] || {};
+    const n = (u.name||uid).toLowerCase();
+    return !q || n.includes(q) || uid.toLowerCase().includes(q);
+  });
+
+  ids.sort((a,b)=>{
+    const ua = state.users[a]||{}, ub = state.users[b]||{};
+    const onA = (ua.status==='online'||ua.status==='in_call')?1:0;
+    const onB = (ub.status==='online'||ub.status==='in_call')?1:0;
+    if(onA!==onB) return onB-onA;
+    return (ua.name||a).localeCompare(ub.name||b);
+  });
+
+  if(ids.length===0){
+    c.innerHTML = `<div class="text-center py-12 px-4 text-slate-400"><i class="fas fa-user-astronaut text-3xl mb-2 opacity-40"></i><p class="text-sm font-semibold">${state.activeTab==='favorites'?'Нет избранных контактов':'Пользователи не найдены'}</p><p class="text-xs opacity-75 mt-1">Вы можете ввести любой ник в поле сверху и нажать «Вызов»</p></div>`;
+    return;
+  }
+
+  c.innerHTML = ids.map(uid=>{
+    const u = state.users[uid] || {};
+    const isOnline = u.status==='online';
+    const isInCall = u.status==='in_call';
+    const isFav = !!state.favorites[uid];
+    const av = u.avatar || (u.name||uid).slice(0,2).toUpperCase();
+    return `<div class="glass-card p-3 rounded-2xl flex items-center justify-between gap-2.5 hover:bg-slate-800/80 transition border ${state.selectedContactId===uid?'border-indigo-500/60 bg-indigo-950/30':'border-white/5'}">
+      <div class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer" data-select-uid="${esc(uid)}">
+        <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-white font-bold text-base relative shrink-0">
+          <span>${esc(av)}</span>
+          <span class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-slate-900 ${isInCall?'bg-amber-400':isOnline?'bg-emerald-400':'bg-slate-500'}"></span>
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-1.5">
+            <span class="font-bold text-sm text-white truncate">${esc(u.name||uid)}</span>
+            ${isInCall?'<span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-semibold">Занят</span>':''}
+          </div>
+          <p class="text-xs text-slate-400 truncate">${esc(u.bio||(isOnline?'🟢 В сети — готов к звонку':'⚫ Не в сети'))}</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1 shrink-0">
+        <button type="button" data-fav-uid="${esc(uid)}" title="В избранное" class="w-8 h-8 rounded-xl hover:bg-white/10 flex items-center justify-center ${isFav?'text-amber-400':'text-slate-500'} transition"><i class="fas fa-star text-xs"></i></button>
+        <button type="button" data-call-audio="${esc(uid)}" title="Аудиозвонок" class="w-10 h-10 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-white flex items-center justify-center transition"><i class="fas fa-phone text-sm"></i></button>
+        <button type="button" data-call-video="${esc(uid)}" title="Видеозвонок" class="w-10 h-10 rounded-xl bg-indigo-500/20 hover:bg-indigo-500 text-indigo-400 hover:text-white flex items-center justify-center transition"><i class="fas fa-video text-sm"></i></button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderSelectedContactCard(uid){
+  state.selectedContactId = uid;
+  const u = state.users[uid]; if(!u) return;
+  $('detailAvatar').innerText = u.avatar || (u.name||uid).slice(0,2).toUpperCase();
+  $('detailName').innerText = u.name || uid;
+  const online = u.status==='online';
+  $('detailStatusBadge').innerText = online?'🟢 В сети':(u.status==='in_call'?'🟡 Разговаривает':'⚫ Не в сети');
+  $('detailBio').innerText = u.bio || 'Нажмите на кнопку аудио- или видеозвонка для соединения через защищенный TURN-сервер.';
+  $('detailActionButtons').classList.remove('hidden');
+  $('detailActionButtons').classList.add('flex');
+}
+
+/* =========================================================
+   10. WEBRTC (CallEngine)
+   ========================================================= */
+const CallEngine = (()=>{
+  let pc=null, localStream=null, remoteStream=null;
+  let currentCallId=null, currentCallRef=null, incomingListenerRef=null;
+  let partnerUid=null, partnerName='', isVideo=false, isCaller=false, isScreenSharing=false;
+  let callAcceptedAt=0, timerInterval=null, statsInterval=null, lastBytesTotal=0, lastStatsTimestamp=0;
+
+  function buildIceConfiguration(){
+    return {
+      iceServers: METERED_ICE_LIST,
+      iceTransportPolicy: state.forceTurn ? 'relay' : 'all',
+      iceCandidatePoolSize: 0
+    };
+  }
+  function optimizeSdpBandwidth(sdp){
+    if(!sdp) return sdp;
+    const p = TRAFFIC_PRESETS[state.trafficPreset] || TRAFFIC_PRESETS.eco;
+    let m = sdp;
+    try{
+      if(m.includes('opus/48000')){
+        m = m.replace(/a=fmtp:111 (.*)/g, `a=fmtp:111 $1;usedtx=1;useinbandfec=1;maxaveragebitrate=${p.audioMaxBitrate};stereo=0`);
+      }
+      if(isVideo && !m.includes('b=AS:')){
+        m = m.replace(/(m=video \d+ [^\r\n]+)/g, `$1\r\nb=AS:${p.sdpVideoAs}\r\nb=TIAS:${p.videoMaxBitrate}`);
+      }
+    }catch(e){}
+    return m;
+  }
+  async function applyBitrateParametersToSenders(){
+    if(!pc) return;
+    const p = TRAFFIC_PRESETS[state.trafficPreset] || TRAFFIC_PRESETS.eco;
+    $('diagPresetName').innerText = p.id.toUpperCase();
+    const senders = pc.getSenders ? pc.getSenders() : [];
+    for(const s of senders){
+      if(!s.track || !s.getParameters) continue;
+      try{
+        const params = s.getParameters();
+        if(!params.encodings || params.encodings.length===0) params.encodings=[{}];
+        if(s.track.kind==='video'){
+          params.encodings[0].maxBitrate = p.videoMaxBitrate;
+          params.encodings[0].maxFramerate = p.videoConstraints.frameRate.max;
+          params.degradationPreference = 'maintain-framerate';
+        } else if(s.track.kind==='audio'){
+          params.encodings[0].maxBitrate = p.audioMaxBitrate;
+        }
+        await s.setParameters(params);
+      }catch(e){}
+    }
+    if(localStream && !isScreenSharing){
+      const vt = localStream.getVideoTracks()[0];
+      if(vt && vt.applyConstraints) vt.applyConstraints(p.videoConstraints).catch(()=>{});
+    }
+  }
+  async function acquireMedia(wantVideo){
+    const p = TRAFFIC_PRESETS[state.trafficPreset] || TRAFFIC_PRESETS.eco;
+    const constraints = {
+      audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1, sampleRate:48000 },
+      video: wantVideo ? p.videoConstraints : false
+    };
+    try { return await navigator.mediaDevices.getUserMedia(constraints); }
+    catch(err){
+      if(wantVideo){
+        showToast('Камера недоступна — переключаем на аудиозвонок','info');
+        isVideo=false;
+        return await navigator.mediaDevices.getUserMedia({ audio:true, video:false });
+      }
+      throw err;
+    }
+  }
+  function attachStreamsToUI(){
+    const rv=$('remoteVideo'), lv=$('localVideo'), pip=$('pipContainer'), center=$('callCenterInfo');
+    if(isVideo){
+      rv.classList.remove('hidden'); pip.classList.remove('hidden'); center.classList.add('opacity-90');
+      if(localStream){ lv.srcObject=localStream; lv.play().catch(()=>{}); }
+    } else {
+      rv.classList.add('hidden'); pip.classList.add('hidden'); center.classList.remove('opacity-90');
+    }
+  }
+  function createPeer(){
+    pc = new RTCPeerConnection(buildIceConfiguration());
+    pc.onicecandidate = e=>{
+      if(e.candidate && currentCallRef){
+        const b = isCaller?'callerCandidates':'calleeCandidates';
+        currentCallRef.child(b).push(e.candidate.toJSON()).catch(()=>{});
+      }
+    };
+    pc.ontrack = e=>{
+      const stream = (e.streams && e.streams[0]) || new MediaStream([e.track]);
+      remoteStream = stream;
+      const a = $('remoteAudio');
+      if(a){ a.srcObject=stream; a.play().catch(()=>{}); }
+      if(isVideo){ const rv=$('remoteVideo'); rv.srcObject=stream; rv.play().catch(()=>{}); }
+      applyRemoteAudioBoost(stream, $('callVolumeSlider').value);
+    };
+    pc.oniceconnectionstatechange = ()=>{
+      if(!pc) return;
+      const st = pc.iceConnectionState;
+      $('diagIceState').innerText = st;
+      if(st==='connected' || st==='completed'){ stopAllTones(); onCallConnected(); }
+      else if(st==='failed' || st==='disconnected'){
+        $('callTopStatus').innerText='Восстановление связи...';
+        $('callSignalDot').className='w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping';
+        if(isCaller) triggerIceRestart();
+      }
+    };
+    return pc;
+  }
+  function onCallConnected(){
+    $('callTopStatus').innerText = isVideo?'Видеозвонок':'Аудиозвонок';
+    $('callSignalDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-400';
+    $('callTimerText').classList.remove('hidden');
+    if(!callAcceptedAt){ callAcceptedAt=Date.now(); playTone(880,110,'sine',0.2); }
+    if(!timerInterval){
+      timerInterval = setInterval(()=>{
+        const s = Math.floor((Date.now()-callAcceptedAt)/1000);
+        const f = `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+        $('callTimerText').innerText=f; $('minCallTimer').innerText=f;
+      },1000);
+    }
+    if(!statsInterval) statsInterval = setInterval(pollWebRtcStats,1200);
+    applyBitrateParametersToSenders();
+  }
+  async function pollWebRtcStats(){
+    if(!pc) return;
+    try{
+      const st = await pc.getStats();
+      let bytes=0, rtt=null, ctype='';
+      st.forEach(r=>{
+        if(r.type==='inbound-rtp'||r.type==='outbound-rtp') bytes += (r.bytesReceived||0)+(r.bytesSent||0);
+        if(r.type==='candidate-pair' && r.state==='succeeded'){
+          if(r.currentRoundTripTime!=null) rtt = Math.round(r.currentRoundTripTime*1000);
+          const lc = st.get(r.localCandidateId);
+          if(lc && lc.candidateType) ctype = lc.candidateType;
+        }
+      });
+      const now = Date.now();
+      if(lastStatsTimestamp>0 && bytes>=lastBytesTotal){
+        const db_ = bytes-lastBytesTotal, ds = (now-lastStatsTimestamp)/1000;
+        const kbps = Math.round((db_*8)/1000/Math.max(0.5,ds));
+        $('liveBitrateText').innerText = `${kbps} kbps`;
+        state.sessionTotalBytes += db_;
+      }
+      lastBytesTotal=bytes; lastStatsTimestamp=now;
+      const mb = (bytes/(1024*1024)).toFixed(2);
+      $('liveBytesText').innerText = `${mb} MB`;
+      $('minCallTraffic').innerText = `${mb} MB`;
+      $('statTotalSessionSaved').innerText = `${(state.sessionTotalBytes/(1024*1024)).toFixed(2)} МБ`;
+      if(rtt!==null) $('diagRtt').innerText = `${rtt} мс`;
+      if(ctype) $('diagRoute').innerText = ctype==='relay'?'TURN Relay (Дальний)':`P2P (${ctype})`;
+    }catch(e){}
+  }
+  async function triggerIceRestart(){
+    if(!pc || !currentCallRef || !isCaller) return;
+    try{
+      const o = await pc.createOffer({ iceRestart:true });
+      o.sdp = optimizeSdpBandwidth(o.sdp);
+      await pc.setLocalDescription(o);
+      await currentCallRef.child('offer').set({ type:o.type, sdp:o.sdp });
+      showToast('Маршрут связи обновлен (ICE Restart)','info');
+    }catch(e){}
+  }
+  function showCallScreen({name,avatar,incoming}){
+    const ov = $('callOverlay');
+    ov.classList.remove('hidden'); ov.classList.add('flex');
+    $('minimizedCallBar').classList.add('hidden');
+    $('callPartnerName').innerText = name || 'Абонент';
+    $('minCallName').innerText = name || 'Абонент';
+    $('callAvatarCircle').innerText = avatar || (name||'?').slice(0,2).toUpperCase();
+    $('callAvatarCircle').className = `w-32 h-32 sm:w-36 sm:h-36 rounded-full bg-gradient-to-tr from-indigo-600 via-violet-600 to-emerald-400 flex items-center justify-center text-5xl font-extrabold text-white shadow-2xl mb-4 border-4 border-white/15 ${incoming?'incoming-avatar-pulse':'call-avatar-pulse'}`;
+    const a = $('btnAcceptCall');
+    if(incoming){ a.classList.remove('hidden'); a.classList.add('flex'); $('callTopStatus').innerText = isVideo?'Входящий видеозвонок...':'Входящий аудиозвонок...'; }
+    else { a.classList.add('hidden'); a.classList.remove('flex'); $('callTopStatus').innerText='Вызов абонента...'; }
+  }
+  async function startCall(targetUid, wantVideo=false){
+    if(!state.currentUser) return;
+    if(currentCallId){ showToast('Вы уже находитесь в звонке','error'); return; }
+    const t = (targetUid||'').trim();
+    if(!t || t===state.currentUser.id){ showToast('Укажите корректный никнейм собеседника','error'); return; }
+
+    isCaller=true; isVideo=!!wantVideo; partnerUid=t;
+    const u = state.users[t] || {};
+    partnerName = u.name || t;
+    currentCallId = `call_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+
+    showCallScreen({ name:partnerName, avatar:u.avatar||partnerName.slice(0,2).toUpperCase(), incoming:false });
+    startOutgoingDialtone();
+
+    try{
+      localStream = await acquireMedia(isVideo);
+      attachStreamsToUI();
+      createPeer();
+      localStream.getTracks().forEach(tr=>pc.addTrack(tr, localStream));
+
+      const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:isVideo });
+      offer.sdp = optimizeSdpBandwidth(offer.sdp);
+      await pc.setLocalDescription(offer);
+
+      currentCallRef = db.ref('calls/'+currentCallId);
+      await currentCallRef.set({
+        from: state.currentUser.id,
+        fromName: state.currentUser.name,
+        fromAvatar: state.currentUser.avatar,
+        to: partnerUid,
+        type: isVideo?'video':'audio',
+        preset: state.trafficPreset,
+        status:'ringing',
+        createdAt: Date.now(),
+        offer:{ type:offer.type, sdp:offer.sdp }
+      });
+      db.ref('users/'+state.currentUser.id).update({ status:'in_call' });
+
+      currentCallRef.child('answer').on('value', async snap=>{
+        const a = snap.val();
+        if(a && pc && pc.signalingState!=='stable'){
+          try{ await pc.setRemoteDescription(new RTCSessionDescription(a)); stopAllTones(); }catch(e){}
+        }
+      });
+      currentCallRef.child('calleeCandidates').on('child_added', snap=>{
+        const c = snap.val();
+        if(c && pc) pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{});
+      });
+      subscribeCallEvents(currentCallRef);
+    }catch(err){
+      showToast('Не удалось получить доступ к микрофону/камере','error');
+      cleanupCall('error');
+    }
+  }
+  function listenForIncomingCalls(){
+    if(!state.currentUser) return;
+    if(incomingListenerRef) incomingListenerRef.off();
+    incomingListenerRef = db.ref('calls').orderByChild('to').equalTo(state.currentUser.id);
+    incomingListenerRef.on('child_added', snap=>{
+      const d = snap.val();
+      if(!d || d.status!=='ringing') return;
+      if(Date.now()-(d.createdAt||0) > 90000){ snap.ref.remove().catch(()=>{}); return; }
+      if(currentCallId){ snap.ref.child('status').set('busy'); return; }
+      currentCallId = snap.key; currentCallRef = snap.ref;
+      isCaller=false; isVideo = d.type==='video'; partnerUid = d.from;
+      partnerName = d.fromName || d.from;
+      showCallScreen({ name:partnerName, avatar:d.fromAvatar||partnerName.slice(0,2).toUpperCase(), incoming:true });
+      startIncomingRingtone();
+      subscribeCallEvents(currentCallRef);
+    });
+  }
+  async function acceptIncomingCall(){
+    if(!currentCallRef) return;
+    stopAllTones();
+    $('btnAcceptCall').classList.add('hidden'); $('btnAcceptCall').classList.remove('flex');
+    $('callTopStatus').innerText='Установка защищенного канала...';
+    try{
+      const snap = await currentCallRef.once('value');
+      const d = snap.val();
+      if(!d || !d.offer){ cleanupCall('cancelled'); return; }
+
+      localStream = await acquireMedia(isVideo);
+      attachStreamsToUI();
+      createPeer();
+      localStream.getTracks().forEach(tr=>pc.addTrack(tr, localStream));
+
+      await pc.setRemoteDescription(new RTCSessionDescription(d.offer));
+      const ans = await pc.createAnswer();
+      ans.sdp = optimizeSdpBandwidth(ans.sdp);
+      await pc.setLocalDescription(ans);
+
+      await currentCallRef.update({ status:'accepted', answer:{ type:ans.type, sdp:ans.sdp } });
+      db.ref('users/'+state.currentUser.id).update({ status:'in_call' });
+
+      currentCallRef.child('callerCandidates').on('child_added', snap2=>{
+        const c = snap2.val();
+        if(c && pc) pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{});
+      });
+    }catch(err){
+      showToast('Ошибка при ответе на звонок: '+err.message,'error');
+      cleanupCall('error');
+    }
+  }
+  function subscribeCallEvents(ref){
+    ref.child('status').on('value', snap=>{
+      const s = snap.val();
+      if(s==='declined' || s==='busy'){ showToast(s==='busy'?'Абонент занят':'Вызов отклонен','info'); cleanupCall('declined'); }
+      else if(s==='ended') cleanupCall('ended');
+    });
+    ref.child('reaction').on('value', snap=>{
+      const r = snap.val();
+      if(r && r.emoji) spawnFloatingEmoji(r.emoji);
+    });
+    ref.child('quickNote').on('value', snap=>{
+      const n = snap.val();
+      if(!n || !n.text) return;
+      const b = $('inCallQuickMessageBanner');
+      b.innerText = `💬 ${n.sender}: ${n.text}`;
+      b.classList.remove('hidden');
+      setTimeout(()=>b.classList.add('hidden'), 5000);
+    });
+  }
+  function spawnFloatingEmoji(emoji){
+    const l = $('callReactionsLayer'); if(!l) return;
+    const el = document.createElement('div');
+    el.className='floating-emoji'; el.style.left = `${20+Math.random()*60}%`; el.innerText = emoji;
+    l.appendChild(el); setTimeout(()=>el.remove(),2500);
+  }
+  function sendReaction(emoji){
+    if(!currentCallRef) return;
+    currentCallRef.child('reaction').set({ emoji, ts:Date.now() }).catch(()=>{});
+  }
+  function sendQuickNote(text){
+    if(!currentCallRef || !text.trim()) return;
+    currentCallRef.child('quickNote').set({ sender:state.currentUser.name, text:text.trim().slice(0,50), ts:Date.now() }).catch(()=>{});
+  }
+  function toggleMic(){
+    if(!localStream) return;
+    const t = localStream.getAudioTracks()[0]; if(!t) return;
+    t.enabled = !t.enabled;
+    const b = $('btnToggleMic');
+    b.className = `w-13 h-13 sm:w-14 sm:h-14 p-3.5 rounded-full flex flex-col items-center justify-center transition shadow-lg ${t.enabled?'bg-white/15 text-white':'bg-amber-500 text-slate-950'}`;
+    b.innerHTML = `<i class="fas ${t.enabled?'fa-microphone':'fa-microphone-slash'} text-lg"></i>`;
+  }
+  function toggleCamera(){
+    if(!localStream) return;
+    const t = localStream.getVideoTracks()[0];
+    if(!t){ showToast('В аудиозвонке камера отключена для экономии трафика','info'); return; }
+    t.enabled = !t.enabled;
+    const b = $('btnToggleCam');
+    b.className = `w-13 h-13 sm:w-14 sm:h-14 p-3.5 rounded-full flex flex-col items-center justify-center transition shadow-lg ${t.enabled?'bg-white/15 text-white':'bg-amber-500 text-slate-950'}`;
+    b.innerHTML = `<i class="fas ${t.enabled?'fa-video':'fa-video-slash'} text-lg"></i>`;
+  }
+  async function switchCameraFacing(){
+    if(!localStream || !isVideo) return;
+    const cur = localStream.getVideoTracks()[0]; if(!cur) return;
+    const facing = cur.getSettings().facingMode || 'user';
+    const next = facing==='user'?'environment':'user';
+    const p = TRAFFIC_PRESETS[state.trafficPreset] || TRAFFIC_PRESETS.eco;
+    try{
+      const ns = await navigator.mediaDevices.getUserMedia({ video:{ ...p.videoConstraints, facingMode:next }, audio:false });
+      const nt = ns.getVideoTracks()[0];
+      const sender = pc && pc.getSenders().find(s=>s.track && s.track.kind==='video');
+      if(sender) await sender.replaceTrack(nt);
+      localStream.removeTrack(cur); cur.stop(); localStream.addTrack(nt);
+      $('localVideo').srcObject = localStream;
+      applyBitrateParametersToSenders();
+      showToast('Камера переключена','info');
+    }catch(e){ showToast('На этом устройстве доступна только одна камера','info'); }
+  }
+  async function toggleScreenShare(){
+    if(!pc || !isVideo){ showToast('Демонстрация экрана доступна во время видеозвонка','info'); return; }
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){ showToast('Ваш браузер не поддерживает демонстрацию экрана','error'); return; }
+    try{
+      if(!isScreenSharing){
+        const s = await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:{ideal:12,max:15} }, audio:false });
+        const t = s.getVideoTracks()[0];
+        const sender = pc.getSenders().find(x=>x.track && x.track.kind==='video');
+        if(sender) await sender.replaceTrack(t);
+        $('localVideo').srcObject = s;
+        isScreenSharing = true;
+        $('btnShareScreen').className = 'w-13 h-13 sm:w-14 sm:h-14 p-3.5 rounded-full bg-indigo-600 text-white flex flex-col items-center justify-center transition shadow-lg';
+        t.onended = ()=>toggleScreenShare();
+      } else {
+        const cam = localStream && localStream.getVideoTracks()[0];
+        const sender = pc.getSenders().find(x=>x.track && x.track.kind==='video');
+        if(sender && cam) await sender.replaceTrack(cam);
+        $('localVideo').srcObject = localStream;
+        isScreenSharing = false;
+        $('btnShareScreen').className = 'w-13 h-13 sm:w-14 sm:h-14 p-3.5 rounded-full bg-white/15 text-white flex flex-col items-center justify-center transition shadow-lg';
+      }
+    }catch(e){}
+  }
+  function hangup(){
+    if(currentCallRef){
+      const s = (!isCaller && !callAcceptedAt) ? 'declined' : 'ended';
+      currentCallRef.child('status').set(s).catch(()=>{});
+    }
+    cleanupCall('local_hangup');
+  }
+  function cleanupCall(reason){
+    stopAllTones();
+    if(partnerUid){
+      const dur = callAcceptedAt ? Math.floor((Date.now()-callAcceptedAt)/1000) : 0;
+      const dir = isCaller ? 'outgoing' : (callAcceptedAt?'incoming':'missed');
+      addCallHistoryItem({ uid:partnerUid, name:partnerName, type:isVideo?'video':'audio', direction:dir, durationSec:dur });
+    }
+    if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
+    if(statsInterval){ clearInterval(statsInterval); statsInterval=null; }
+    if(currentCallRef){
+      const r = currentCallRef; r.off();
+      setTimeout(()=>{ r.remove().catch(()=>{}); }, 1800);
+    }
+    if(pc){ try{ pc.ontrack=null; pc.onicecandidate=null; pc.close(); }catch(e){} pc=null; }
+    if(localStream){ try{ localStream.getTracks().forEach(t=>t.stop()); }catch(e){} localStream=null; }
+    remoteStream=null; cleanupAudioBooster();
+    const rv=$('remoteVideo'), lv=$('localVideo'), ra=$('remoteAudio');
+    if(rv){ rv.pause(); rv.srcObject=null; }
+    if(lv){ lv.pause(); lv.srcObject=null; }
+    if(ra){ ra.pause(); ra.srcObject=null; }
+    if(state.currentUser) db.ref('users/'+state.currentUser.id).update({ status:'online' }).catch(()=>{});
+    currentCallId=null; currentCallRef=null; partnerUid=null; callAcceptedAt=0;
+    lastBytesTotal=0; lastStatsTimestamp=0; isScreenSharing=false;
+    $('callOverlay').classList.add('hidden'); $('callOverlay').classList.remove('flex');
+    $('minimizedCallBar').classList.add('hidden'); $('minimizedCallBar').classList.remove('flex');
+    $('callTimerText').classList.add('hidden'); $('callTimerText').innerText='00:00';
+  }
+  return {
+    startCall, listenForIncomingCalls, acceptIncomingCall, hangup,
+    toggleMic, toggleCamera, switchCameraFacing, toggleScreenShare,
+    triggerIceRestart, applyBitrateParametersToSenders,
+    sendReaction, sendQuickNote, getRemoteStream:()=>remoteStream
+  };
+})();
+
+/* =========================================================
+   11. DRAG PiP
+   ========================================================= */
+(function(){
+  const pip = $('pipContainer'); if(!pip) return;
+  let drag=false, sx=0, sy=0, ol=0, ot=0;
+  pip.addEventListener('pointerdown', e=>{
+    drag=true; pip.setPointerCapture(e.pointerId);
+    const r = pip.getBoundingClientRect();
+    sx=e.clientX; sy=e.clientY; ol=r.left; ot=r.top; pip.style.right='auto';
+  });
+  pip.addEventListener('pointermove', e=>{
+    if(!drag) return;
+    const dx=e.clientX-sx, dy=e.clientY-sy;
+    pip.style.left = `${Math.max(10, Math.min(window.innerWidth-pip.offsetWidth-10, ol+dx))}px`;
+    pip.style.top  = `${Math.max(10, Math.min(window.innerHeight-pip.offsetHeight-10, ot+dy))}px`;
+  });
+  pip.addEventListener('pointerup', ()=>{ drag=false; });
+})();
+
+/* =========================================================
+   12. UI ОБРАБОТЧИКИ
+   ========================================================= */
+$('authSubmitBtn').addEventListener('click', handleAuth);
+$('authPassword').addEventListener('keydown', e=>{ if(e.key==='Enter') handleAuth(); });
+
+$('contactSearchInput').addEventListener('input', renderLeftList);
+
+$('quickCallByNickBtn').addEventListener('click', ()=>{
+  const v = ($('contactSearchInput').value||'').trim();
+  if(!v){ showToast('Введите никнейм абонента в поле поиска','info'); return; }
+  CallEngine.startCall(v, false);
+});
+
+document.querySelectorAll('.nav-tab-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    state.activeTab = btn.dataset.tab;
+    document.querySelectorAll('.nav-tab-btn').forEach(b=>{
+      const a = b.dataset.tab===state.activeTab;
+      b.className = `nav-tab-btn py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${a?'bg-indigo-600 text-white':'text-slate-400 hover:text-white'}`;
+    });
+    renderLeftList();
+  });
+});
+
+$('leftListContainer').addEventListener('click', e=>{
+  const a = e.target.closest('[data-call-audio]');
+  if(a){ e.stopPropagation(); CallEngine.startCall(a.dataset.callAudio, false); return; }
+  const v = e.target.closest('[data-call-video]');
+  if(v){ e.stopPropagation(); CallEngine.startCall(v.dataset.callVideo, true); return; }
+  const f = e.target.closest('[data-fav-uid]');
+  if(f){ e.stopPropagation(); toggleFavorite(f.dataset.favUid); return; }
+  const c = e.target.closest('[data-select-uid]');
+  if(c){ renderSelectedContactCard(c.dataset.selectUid); renderLeftList(); }
+});
+
+$('detailAudioCallBtn').addEventListener('click', ()=>{ if(state.selectedContactId) CallEngine.startCall(state.selectedContactId,false); });
+$('detailVideoCallBtn').addEventListener('click', ()=>{ if(state.selectedContactId) CallEngine.startCall(state.selectedContactId,true); });
+
+document.querySelectorAll('.preset-card-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    state.trafficPreset = btn.dataset.preset;
+    localStorage.setItem('dc_preset', state.trafficPreset);
+    updatePresetUI();
+    CallEngine.applyBitrateParametersToSenders();
+    showToast(`Включен режим: ${TRAFFIC_PRESETS[state.trafficPreset].title}`,'success');
+  });
+});
+document.querySelectorAll('.live-preset-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    state.trafficPreset = btn.dataset.livePreset;
+    localStorage.setItem('dc_preset', state.trafficPreset);
+    updatePresetUI();
+    CallEngine.applyBitrateParametersToSenders();
+    showToast(`Битрейт переключен на ${btn.dataset.livePreset.toUpperCase()}`,'success');
+  });
+});
+
+$('forceTurnToggle').addEventListener('change', e=>{
+  state.forceTurn = e.target.checked;
+  localStorage.setItem('dc_force_turn', String(state.forceTurn));
+  updatePresetUI();
+  showToast(state.forceTurn?'Включен принудительный TURN Relay':'Включен авто-выбор маршрута','info');
+});
+
+const openSettings = ()=>{
+  if(!state.currentUser) return;
+  $('editAvatarInput').value = state.currentUser.avatar || '';
+  $('editBioInput').value = state.currentUser.bio || '';
+  $('modalTrafficSelect').value = state.trafficPreset;
+  $('modalForceTurnCheck').checked = state.forceTurn;
+  $('settingsModal').classList.remove('hidden');
+  $('settingsModal').classList.add('flex');
+};
+$('openProfileEditBtn').addEventListener('click', openSettings);
+$('openTrafficSettingsBtn').addEventListener('click', openSettings);
+$('closeSettingsModalBtn').addEventListener('click', ()=>{
+  $('settingsModal').classList.add('hidden');
+  $('settingsModal').classList.remove('flex');
+});
+
+$('saveSettingsBtn').addEventListener('click', async ()=>{
+  if(!state.currentUser) return;
+  const av = ($('editAvatarInput').value||'').trim().toUpperCase() || state.currentUser.name.slice(0,2).toUpperCase();
+  const bio = ($('editBioInput').value||'').trim();
+  state.trafficPreset = $('modalTrafficSelect').value;
+  state.forceTurn = $('modalForceTurnCheck').checked;
+  state.autoAudioFallback = $('modalAutoAudioFallback').checked;
+
+  state.currentUser.avatar = av;
+  state.currentUser.bio = bio;
+  const remember = localStorage.getItem(LS_REMEMBER) === 'true';
+  saveProfileLocal(state.currentUser, remember); // <-- обновляем сохранённый профиль
+  localStorage.setItem('dc_preset', state.trafficPreset);
+  localStorage.setItem('dc_force_turn', String(state.forceTurn));
+
+  await db.ref('users/'+state.currentUser.id).update({ avatar:av, bio });
+  updateMyHeaderUI();
+  updatePresetUI();
+  CallEngine.applyBitrateParametersToSenders();
+  $('settingsModal').classList.add('hidden'); $('settingsModal').classList.remove('flex');
+  showToast('Настройки и профиль сохранены!','success');
+});
+
+$('clearRamCacheBtn').addEventListener('click', async ()=>{
+  const ok = await showConfirmDialog({
+    title:'Очистка памяти и журнала',
+    message:'Очистить журнал звонков и освободить кэш браузера? Ваш аккаунт останется авторизованным.',
+    confirmText:'Очистить', cancelText:'Отмена'
+  });
+  if(!ok) return;
+  state.callHistory=[]; state.sessionTotalBytes=0;
+  localStorage.removeItem('dc_history');
+  $('statTotalSessionSaved').innerText='0.00 МБ';
+  renderLeftList();
+  showToast('Буфер памяти и журнал звонков очищены','success');
+});
+
+$('logoutAppBtn').addEventListener('click', async ()=>{
+  const ok = await showConfirmDialog({
+    title:'Выход из аккаунта',
+    message:'Выйти из профиля? Для следующего входа потребуется никнейм и пароль. Чтобы входить автоматически — просто не выходите.',
+    confirmText:'Выйти', cancelText:'Остаться'
+  });
+  if(!ok) return;
+  if(state.currentUser) await db.ref('users/'+state.currentUser.id).update({ status:'offline', lastSeen:Date.now() });
+  clearProfileLocal();
+  location.reload();
+});
+
+$('btnAcceptCall').addEventListener('click', ()=>CallEngine.acceptIncomingCall());
+$('btnHangupCall').addEventListener('click', ()=>CallEngine.hangup());
+$('btnToggleMic').addEventListener('click', ()=>CallEngine.toggleMic());
+$('btnToggleCam').addEventListener('click', ()=>CallEngine.toggleCamera());
+$('btnSwitchCam').addEventListener('click', ()=>CallEngine.switchCameraFacing());
+$('btnShareScreen').addEventListener('click', ()=>CallEngine.toggleScreenShare());
+$('iceRestartBtn').addEventListener('click', ()=>CallEngine.triggerIceRestart());
+$('toggleStatsDrawerBtn').addEventListener('click', ()=>{ $('callDiagnosticsDrawer').classList.toggle('hidden'); });
+
+$('minimizeCallBtn').addEventListener('click', ()=>{
+  $('callOverlay').classList.add('hidden'); $('callOverlay').classList.remove('flex');
+  $('minimizedCallBar').classList.remove('hidden'); $('minimizedCallBar').classList.add('flex');
+});
+$('restoreCallBtn').addEventListener('click', ()=>{
+  $('minimizedCallBar').classList.add('hidden'); $('minimizedCallBar').classList.remove('flex');
+  $('callOverlay').classList.remove('hidden'); $('callOverlay').classList.add('flex');
+});
+
+$('callVolumeSlider').addEventListener('input', e=>applyRemoteAudioBoost(CallEngine.getRemoteStream(), e.target.value));
+
+document.querySelectorAll('.react-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>CallEngine.sendReaction(btn.dataset.react));
+});
+const sendNote = ()=>{
+  const i = $('inCallNoteInput'); if(!i.value.trim()) return;
+  CallEngine.sendQuickNote(i.value); i.value='';
+};
+$('sendInCallNoteBtn').addEventListener('click', sendNote);
+$('inCallNoteInput').addEventListener('keydown', e=>{ if(e.key==='Enter') sendNote(); });
+
+/* =========================================================
+   13. АВТО-ВХОД ПРИ ЗАГРУЗКЕ
+   ========================================================= */
+window.addEventListener('DOMContentLoaded', async ()=>{
+  const saved = loadProfileLocal();
+  if(saved && saved.user && saved.remember){
+    // Показываем главный экран сразу, затем синхронизируем с Firebase
+    state.currentUser = saved.user;
+    launchMainApp();
+    // Восстанавливаем статус online
+    try { await db.ref('users/'+saved.user.id).update({ status:'online', lastSeen:Date.now() }); } catch(e){}
+  } else if(saved && saved.user){
+    // Профиль сохранён, но авто-вход выключен — подставим ник для удобства
+    $('authName').value = saved.user.id || '';
+    $('authAvatar').value = saved.user.avatar || '';
+    $('authRememberMe').checked = false;
+  }
+});
+</script>
+</body>
+</html>
