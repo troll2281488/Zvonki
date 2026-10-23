@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>DonorCalls — Пульт связи</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: { fontFamily: { sans: ['Inter','sans-serif'], mono: ['JetBrains Mono','monospace'] } } }
+}
+</script>
+<style>
+:root { --bg-0:#070912; --bg-1:#0d1020; --bg-2:#131829; --accent:#00e0a4; --accent-2:#6b7dff; --danger:#ff4d6d; --warn:#ffb020; }
+* { box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; }
+body { font-family:'Inter',sans-serif; background:radial-gradient(1200px 800px at 100% 0%, rgba(107,125,255,.15), transparent 60%), radial-gradient(900px 600px at 0% 100%, rgba(0,224,164,.12), transparent 55%), var(--bg-0); color:#e6e8f2; height:100vh; height:100dvh; overflow:hidden; }
+body::before { content:''; position:fixed; inset:0; pointer-events:none; z-index:0; background-image:linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px); background-size:48px 48px; mask-image:radial-gradient(ellipse at center, black 40%, transparent 80%); -webkit-mask-image:radial-gradient(ellipse at center, black 40%, transparent 80%); }
+::-webkit-scrollbar { width:4px; height:4px; } ::-webkit-scrollbar-thumb { background:rgba(107,125,255,.35); border-radius:4px; }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.4;} }
+@keyframes recBlink { 0%,100%{opacity:1;} 50%{opacity:.15;} }
+@keyframes floatReaction { 0%{opacity:0;transform:translateY(20px) scale(.6);} 20%{opacity:1;transform:translateY(0) scale(1.15);} 80%{opacity:1;transform:translateY(-90px);} 100%{opacity:0;transform:translateY(-130px) scale(.8);} }
+@keyframes ringPulse { 0%{box-shadow:0 0 0 0 rgba(0,224,164,.6);} 100%{box-shadow:0 0 0 30px rgba(0,224,164,0);} }
+@keyframes scan { 0%{transform:translateX(-100%);} 100%{transform:translateX(100%);} }
+@keyframes incomingRing { 0%{transform:scale(.96);box-shadow:0 0 0 0 rgba(0,224,164,.8);} 70%{transform:scale(1.03);box-shadow:0 0 0 26px rgba(0,224,164,0);} 100%{transform:scale(.96);box-shadow:0 0 0 0 rgba(0,224,164,0);} }
+.pulse-dot { animation:pulse 1.6s ease-in-out infinite; } .rec-dot { animation:recBlink 1s ease-in-out infinite; }
+.floating-emoji { position:absolute; bottom:130px; font-size:2.4rem; pointer-events:none; z-index:60; animation:floatReaction 2.4s ease-out forwards; }
+.ring-pulse { animation:ringPulse 1.4s ease-out infinite; } .incoming-avatar { animation: incomingRing 1.4s infinite; }
+.panel { background:linear-gradient(180deg, rgba(19,24,41,.85), rgba(13,16,32,.9)); border:1px solid rgba(255,255,255,.06); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); }
+.panel-2 { background:rgba(19,24,41,.55); border:1px solid rgba(255,255,255,.05); }
+.glow { box-shadow:0 0 40px -12px rgba(0,224,164,.55); }
+video { transform:none !important; }
+#groupVideoGrid { display:grid; gap:8px; width:100%; height:100%; }
+#groupVideoGrid.g2 { grid-template-columns:1fr 1fr; } #groupVideoGrid.g3 { grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; } #groupVideoGrid.g3 > :first-child { grid-column:span 2; } #groupVideoGrid.g4 { grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; }
+.group-tile { position:relative; background:#0b0e18; border-radius:14px; overflow:hidden; min-height:0; border:1px solid rgba(255,255,255,.05); }
+.group-tile video { width:100%; height:100%; object-fit:cover; }
+.group-tile .label { position:absolute; bottom:6px; left:8px; right:8px; font-size:11px; background:rgba(0,0,0,.65); padding:4px 8px; border-radius:8px; color:#fff; display:flex; justify-content:space-between; align-items:center; }
+.ctrl-btn { width:54px; height:54px; border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.06); color:#fff; transition:all .15s; font-size:16px; }
+.ctrl-btn:hover { background:rgba(255,255,255,.16); transform:translateY(-1px); } .ctrl-btn.off { background:rgba(255,176,32,.9); color:#0d1020; } .ctrl-btn.danger { background:var(--danger); } .ctrl-btn.accent { background:var(--accent); color:#0d1020; } .ctrl-btn:active { transform:scale(.96); }
+</style>
+</head>
+<body class="relative">
+
+<div id="toastContainer" class="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] flex flex-col gap-2 w-[92%] max-w-sm pointer-events-none"></div>
+
+<div id="customDialogModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-[9500] hidden items-center justify-center p-4">
+  <div class="panel rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+    <div class="flex items-center gap-3 mb-3"><div class="w-10 h-10 rounded-2xl bg-[color:var(--accent)]/15 text-[color:var(--accent)] flex items-center justify-center"><i id="dialogIcon" class="fas fa-circle-info"></i></div><h3 id="dialogTitle" class="text-base font-bold text-white">Подтверждение</h3></div>
+    <p id="dialogMessage" class="text-sm text-slate-400 leading-relaxed mb-5"></p>
+    <div class="flex gap-2 justify-end"><button id="dialogCancelBtn" type="button" class="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold transition">Отмена</button><button id="dialogConfirmBtn" type="button" class="px-5 py-2.5 rounded-xl bg-[color:var(--accent)] hover:brightness-110 text-[color:var(--bg-0)] text-xs font-bold transition">ОК</button></div>
+  </div>
+</div>
+
+<div id="authScreen" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="panel w-full max-w-md rounded-3xl p-7 shadow-2xl relative overflow-hidden">
+    <div class="absolute -top-20 -right-20 w-56 h-56 bg-[color:var(--accent)]/25 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute -bottom-20 -left-20 w-56 h-56 bg-[color:var(--accent-2)]/25 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="flex flex-col items-center text-center mb-6 relative">
+      <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-[color:var(--accent)] to-[color:var(--accent-2)] flex items-center justify-center glow mb-3"><i class="fas fa-satellite-dish text-2xl text-[color:var(--bg-0)]"></i></div>
+      <h1 class="text-2xl font-extrabold tracking-tight text-white">DONORCALLS</h1>
+      <p class="text-[11px] font-mono uppercase tracking-[3px] text-[color:var(--accent)] mt-1">// Пульт дальней связи</p>
+    </div>
+    <div class="space-y-3 relative">
+      <div><label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Позывной (ID)</label><div class="relative"><i class="fas fa-id-badge absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i><input id="authName" type="text" maxlength="24" placeholder="например: AlexPro" class="w-full pl-10 pr-4 py-3.5 rounded-xl bg-[color:var(--bg-0)] border border-white/10 text-white placeholder-slate-600 text-sm focus:outline-none focus:border-[color:var(--accent)]/60"></div></div>
+      <div><label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Код доступа</label><div class="relative"><i class="fas fa-key absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i><input id="authPassword" type="password" placeholder="пароль" class="w-full pl-10 pr-4 py-3.5 rounded-xl bg-[color:var(--bg-0)] border border-white/10 text-white placeholder-slate-600 text-sm focus:outline-none focus:border-[color:var(--accent)]/60"></div></div>
+      <div class="grid grid-cols-2 gap-2">
+        <div><label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Аватар</label><input id="authAvatar" type="text" maxlength="2" placeholder="🚀" class="w-full px-3 py-3 rounded-xl bg-[color:var(--bg-0)] border border-white/10 text-white text-center text-sm uppercase focus:outline-none focus:border-[color:var(--accent)]/60"></div>
+        <div><label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Канал</label><select id="authTrafficPreset" class="w-full px-2 py-3 rounded-xl bg-[color:var(--bg-0)] border border-white/10 text-[color:var(--accent)] font-bold text-[11px] focus:outline-none focus:border-[color:var(--accent)]/60"><option value="ultra">⚡ Ультра</option><option value="eco" selected>🌿 Эко</option><option value="hd">💎 HD</option></select></div>
+      </div>
+      <label class="flex items-center gap-2 text-[11px] text-slate-400 cursor-pointer px-1"><input id="authRememberMe" type="checkbox" checked class="rounded bg-[color:var(--bg-0)] border-white/20 text-[color:var(--accent)] focus:ring-0"><span>Авто-вход на этом устройстве</span></label>
+      <button id="authSubmitBtn" type="button" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-[color:var(--accent)] to-[color:var(--accent-2)] text-[color:var(--bg-0)] font-extrabold text-sm tracking-wide flex items-center justify-center gap-2 glow hover:brightness-110 active:scale-[.99]"><i class="fas fa-bolt"></i><span>ПОДКЛЮЧИТЬСЯ</span></button>
+      <div class="flex items-center justify-between text-[10px] font-mono text-slate-500 pt-2 border-t border-white/5"><span class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-[color:var(--accent)] pulse-dot"></span> TURN RELAY ОНЛАЙН</span><span>NODES: <b id="authUsersCount" class="text-white">...</b></span></div>
+    </div>
+  </div>
+</div>
+
+<div id="appContainer" class="hidden relative z-10 w-full h-full max-w-7xl mx-auto flex flex-col md:flex-row gap-3 p-3">
+  <aside class="w-full md:w-[340px] lg:w-[380px] flex flex-col panel rounded-3xl overflow-hidden shrink-0">
+    <div class="p-4 border-b border-white/5">
+      <div class="flex items-center gap-3">
+        <button id="openProfileEditBtn" type="button" class="relative shrink-0 group"><div id="myAvatarBox" class="w-14 h-14 rounded-2xl bg-gradient-to-br from-[color:var(--accent-2)] to-[color:var(--accent)] flex items-center justify-center text-white font-extrabold text-lg shadow-lg overflow-hidden"><img id="myAvatarImg" class="w-full h-full object-cover hidden" alt=""><span id="myAvatarText">U</span></div><span class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[color:var(--accent)] border-2 border-[color:var(--bg-1)]"></span></button>
+        <div class="min-w-0 flex-1">
+          <h2 id="myNameText" class="font-extrabold text-base text-white truncate">Пользователь</h2>
+          <p id="myStatusSub" class="text-[11px] text-slate-500 truncate">— статус</p>
+          <div class="flex items-center gap-1.5 mt-1"><span id="myEcoBadge" class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[color:var(--accent)]/15 text-[color:var(--accent)] border border-[color:var(--accent)]/30">ECO</span><button id="openSettingsBtn" class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-slate-400">⚙ Настройки</button></div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-2 mt-3"><button id="openGroupCallBtn" type="button" class="py-2.5 rounded-xl bg-[color:var(--accent-2)]/15 hover:bg-[color:var(--accent-2)]/30 text-[color:var(--accent-2)] font-bold text-[11px] flex items-center justify-center gap-1.5"><i class="fas fa-users-line"></i><span>Группа</span></button><button id="logoutAppBtn" type="button" class="py-2.5 rounded-xl bg-[color:var(--danger)]/15 hover:bg-[color:var(--danger)]/30 text-[color:var(--danger)] font-bold text-[11px] flex items-center justify-center gap-1.5"><i class="fas fa-power-off"></i><span>Выход</span></button></div>
+    </div>
+    <div class="p-3 border-b border-white/5"><div class="relative flex items-center"><i class="fas fa-magnifying-glass absolute left-3.5 text-slate-500 text-xs"></i><input id="contactSearchInput" type="text" placeholder="Найти узел или ID..." class="w-full pl-9 pr-16 py-2.5 rounded-xl bg-[color:var(--bg-0)] border border-white/5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[color:var(--accent)]/50"><button id="quickCallByNickBtn" type="button" class="absolute right-1.5 px-2.5 py-1.5 rounded-lg bg-[color:var(--accent)] hover:brightness-110 text-[color:var(--bg-0)] text-[10px] font-extrabold">→</button></div></div>
+    <div class="grid grid-cols-3 gap-1 p-2 bg-[color:var(--bg-0)]/60 mx-3 mt-3 rounded-xl border border-white/5">
+      <button type="button" data-tab="contacts" class="nav-tab-btn py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 bg-[color:var(--accent)]/15 text-[color:var(--accent)] transition"><i class="fas fa-circle-nodes"></i><span>Узлы</span><span id="onlineCounterBadge" class="text-[9px] px-1 rounded bg-white/10">0</span></button>
+      <button type="button" data-tab="favorites" class="nav-tab-btn py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 text-slate-500 transition"><i class="fas fa-star"></i><span>Важные</span></button>
+      <button type="button" data-tab="history" class="nav-tab-btn py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 text-slate-500 transition"><i class="fas fa-clock-rotate-left"></i><span>Сеансы</span></button>
+    </div>
+    <div id="leftListContainer" class="flex-1 overflow-y-auto p-3 space-y-2"></div>
+    <div class="px-3 py-2 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-500"><div class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-[color:var(--accent)]"></span><span id="footerNetworkMode">P2P/TURN</span></div><button id="clearRamCacheBtn" type="button" class="hover:text-[color:var(--accent)] transition">CLEAN</button></div>
+  </aside>
+  <main class="hidden md:flex flex-1 flex-col panel rounded-3xl overflow-hidden relative">
+    <div class="px-5 py-3 border-b border-white/5 flex items-center justify-between"><div class="flex items-center gap-3"><span class="text-[10px] font-mono uppercase tracking-[2px] text-[color:var(--accent)]">// СИСТЕМА В НОРМЕ</span><span class="w-px h-3 bg-white/10"></span><span class="text-[10px] font-mono text-slate-500">UPLINK: <b class="text-white" id="uplinkState">IDLE</b></span></div><div class="flex items-center gap-3"><div class="flex items-center gap-1.5 text-[10px] font-mono text-slate-500"><span class="w-1.5 h-1.5 rounded-full bg-[color:var(--accent)] pulse-dot"></span><span id="sessionBytesLabel">0.00 МБ</span></div></div></div>
+    <div class="h-0.5 bg-white/5 overflow-hidden"><div class="h-full bg-gradient-to-r from-transparent via-[color:var(--accent)] to-transparent w-1/3" style="animation: scan 4s ease-in-out infinite;"></div></div>
+    <div class="flex-1 overflow-y-auto p-6">
+      <div id="detailEmpty" class="h-full flex flex-col items-center justify-center text-center"><div class="w-24 h-24 rounded-3xl bg-white/[.02] border border-white/5 flex items-center justify-center mb-4"><i class="fas fa-tower-broadcast text-3xl text-slate-700"></i></div><h2 class="text-lg font-extrabold text-white/90">Узел не выбран</h2><p class="text-xs text-slate-600 max-w-xs mt-1">Выбери абонента слева или введи его позывной в поиск</p></div>
+      <div id="selectedContactCard" class="hidden">
+        <div class="flex items-start gap-4 mb-6"><div id="detailAvatar" class="w-20 h-20 rounded-3xl bg-gradient-to-br from-[color:var(--accent-2)] to-[color:var(--accent)] flex items-center justify-center text-3xl font-extrabold text-white shadow-xl overflow-hidden"><img id="detailAvatarImg" class="w-full h-full object-cover hidden" alt=""><span id="detailAvatarText">📡</span></div><div class="flex-1 min-w-0"><div class="flex items-center gap-2 flex-wrap"><h2 id="detailName" class="text-2xl font-extrabold text-white">—</h2><span id="detailStatusBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-[color:var(--accent)]/15 text-[color:var(--accent)] font-bold">—</span></div><p id="detailBio" class="text-xs text-slate-500 mt-1">—</p><div class="flex items-center gap-3 mt-2 text-[10px] font-mono text-slate-600"><span>ID: <b id="detailUid" class="text-slate-400">—</b></span></div></div></div>
+        <div class="grid grid-cols-2 gap-3 mb-6"><button id="detailAudioCallBtn" type="button" class="py-4 rounded-2xl bg-[color:var(--accent)]/15 hover:bg-[color:var(--accent)]/25 text-[color:var(--accent)] border border-[color:var(--accent)]/30 flex flex-col items-center justify-center gap-1.5 transition"><i class="fas fa-phone text-xl"></i><span class="text-xs font-bold uppercase tracking-wider">Голос</span></button><button id="detailVideoCallBtn" type="button" class="py-4 rounded-2xl bg-[color:var(--accent-2)]/15 hover:bg-[color:var(--accent-2)]/25 text-[color:var(--accent-2)] border border-[color:var(--accent-2)]/30 flex flex-col items-center justify-center gap-1.5 transition"><i class="fas fa-video text-xl"></i><span class="text-xs font-bold uppercase tracking-wider">Видео</span></button></div>
+        <div class="grid grid-cols-3 gap-2"><div class="panel-2 rounded-2xl p-3"><div class="text-[9px] font-mono uppercase tracking-wider text-slate-600 mb-1">Канал</div><div id="statPresetTitle" class="text-sm font-extrabold text-white">ЭКО</div></div><div class="panel-2 rounded-2xl p-3"><div class="text-[9px] font-mono uppercase tracking-wider text-slate-600 mb-1">Сеть</div><div class="text-sm font-extrabold text-white">TURN</div></div><div class="panel-2 rounded-2xl p-3"><div class="text-[9px] font-mono uppercase tracking-wider text-slate-600 mb-1">Расход</div><div id="statTotalSessionSaved" class="text-sm font-extrabold text-white">0.00 МБ</div></div></div>
+      </div>
+    </div>
+    <div class="p-4 border-t border-white/5 bg-[color:var(--bg-0)]/40">
+      <div class="flex items-center justify-between mb-2"><span class="text-[10px] font-mono uppercase tracking-[2px] text-slate-500">// ЭКОНОМИЯ ТРАФИКА</span><label class="flex items-center gap-1.5 text-[10px] text-slate-400 cursor-pointer"><input id="forceTurnToggle" type="checkbox" class="rounded bg-[color:var(--bg-0)] border-white/20 text-[color:var(--accent)] focus:ring-0 w-3 h-3"><span>Только TURN</span></label></div>
+      <div class="grid grid-cols-3 gap-2"><button type="button" data-preset="ultra" class="preset-card-btn p-2.5 rounded-xl border border-white/5 bg-[color:var(--bg-0)]/60 hover:bg-white/5 text-left"><div class="text-[9px] font-bold text-[color:var(--accent)] uppercase tracking-wider">⚡ Ультра</div><div class="text-[10px] font-mono text-slate-500">110 kbps</div></button><button type="button" data-preset="eco" class="preset-card-btn p-2.5 rounded-xl border border-[color:var(--accent)]/50 bg-[color:var(--accent)]/10 text-left"><div class="text-[9px] font-bold text-[color:var(--accent)] uppercase tracking-wider">🌿 Эко</div><div class="text-[10px] font-mono text-slate-500">220 kbps</div></button><button type="button" data-preset="hd" class="preset-card-btn p-2.5 rounded-xl border border-white/5 bg-[color:var(--bg-0)]/60 hover:bg-white/5 text-left"><div class="text-[9px] font-bold text-[color:var(--warn)] uppercase tracking-wider">💎 HD</div><div class="text-[10px] font-mono text-slate-500">500 kbps</div></button></div>
+    </div>
+  </main>
+</div>
+
+<div id="settingsModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-[6000] hidden items-center justify-center p-4">
+  <div class="panel w-full max-w-md rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between mb-4"><h3 class="text-base font-extrabold text-white flex items-center gap-2"><i class="fas fa-sliders text-[color:var(--accent)]"></i> Профиль и настройки</h3><button type="button" id="closeSettingsModalBtn" class="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center"><i class="fas fa-times"></i></button></div>
+    <div class="space-y-4">
+      <div class="flex items-center gap-4 p-3 rounded-2xl bg-[color:var(--bg-0)]/60 border border-white/5"><div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-[color:var(--accent-2)] to-[color:var(--accent)] flex items-center justify-center text-white font-extrabold text-xl overflow-hidden shrink-0" id="editAvatarPreviewWrap"><img id="editAvatarPreviewImg" class="w-full h-full object-cover hidden" alt=""><span id="editAvatarPreviewText">U</span></div><div class="flex-1 min-w-0"><label for="avatarFileInput" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-[color:var(--accent)]/15 hover:bg-[color:var(--accent)]/25 text-[color:var(--accent)] text-[11px] font-bold cursor-pointer transition"><i class="fas fa-image"></i> Загрузить фото</label><input id="avatarFileInput" type="file" accept="image/*" class="hidden"><button id="clearAvatarBtn" type="button" class="text-[11px] text-slate-500 hover:text-rose-400 ml-2">Сбросить</button><p class="text-[10px] text-slate-500 mt-1">Авто-сжатие до 200×200 px, ~10 КБ.</p></div></div>
+      <div><label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Эмодзи-аватар (если нет фото)</label><input id="editAvatarInput" type="text" maxlength="2" class="w-full px-3 py-2.5 rounded-xl bg-[color:var(--bg-0)] border border-white/10 text-white text-sm uppercase text-center"></div>
+      <div><label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Статус</label><input id="editBioInput" type="text" maxlength="70" class="w-full px-3 py-2.5 rounded-xl bg-[color:var(--bg-0)] border border-white/10 text-white text-sm"></div>
+      <div class="pt-2 border-t border-white/5"><label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Канал трафика</label><select id="modalTrafficSelect" class="w-full px-3 py-2.5 rounded-xl bg-[color:var(--bg-0)] border border-white/10 text-white text-sm font-semibold"><option value="ultra">⚡ Ультра-Эко</option><option value="eco">🌿 Смарт-Эко</option><option value="hd">💎 HD</option></select></div>
+      <label class="flex items-center justify-between py-2 cursor-pointer"><div><div class="text-sm font-semibold text-white">Принудительный TURN</div><div class="text-[11px] text-slate-500">Для дальних стран</div></div><input id="modalForceTurnCheck" type="checkbox" class="w-5 h-5 rounded bg-[color:var(--bg-0)] border-white/20 text-[color:var(--accent)]"></label>
+      <label class="flex items-center justify-between py-2 cursor-pointer"><div><div class="text-sm font-semibold text-white">Записывать звонки</div><div class="text-[11px] text-slate-500">Локально, без трафика</div></div><input id="modalRecordCallsCheck" type="checkbox" class="w-5 h-5 rounded bg-[color:var(--bg-0)] border-white/20 text-[color:var(--accent)]"></label>
+      <label class="flex items-center justify-between py-2 cursor-pointer"><div><div class="text-sm font-semibold text-white">Режим наушников</div><div class="text-[11px] text-slate-500">Убирает эхо, снижает громкость вывода</div></div><input id="modalHeadphonesCheck" type="checkbox" class="w-5 h-5 rounded bg-[color:var(--bg-0)] border-white/20 text-[color:var(--accent)]"></label>
+      <button id="saveSettingsBtn" type="button" class="w-full py-3 rounded-xl bg-[color:var(--accent)] text-[color:var(--bg-0)] font-extrabold text-sm">💾 Сохранить</button>
+      <button id="deleteAccountBtn" type="button" class="w-full py-3 rounded-xl bg-[color:var(--danger)]/15 hover:bg-[color:var(--danger)]/25 text-[color:var(--danger)] font-bold text-sm border border-[color:var(--danger)]/30 flex items-center justify-center gap-2"><i class="fas fa-trash-can"></i> Удалить аккаунт</button>
+    </div>
+  </div>
+</div>
+
+<div id="groupCallModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-[6500] hidden items-center justify-center p-4">
+  <div class="panel w-full max-w-md rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between mb-4"><h3 class="text-base font-extrabold text-white flex items-center gap-2"><i class="fas fa-users-line text-[color:var(--accent-2)]"></i> Групповой сеанс</h3><button type="button" id="closeGroupModalBtn" class="w-8 h-8 rounded-full bg-white/5 text-slate-400 hover:text-white flex items-center justify-center"><i class="fas fa-times"></i></button></div>
+    <p class="text-[11px] text-slate-500 mb-3">Выбери до 3 участников (всего до 4 человек).</p>
+    <div class="space-y-1.5 mb-4 max-h-64 overflow-y-auto" id="groupContactsList"></div>
+    <div class="flex items-center justify-between mb-3 px-1"><span class="text-[11px] text-slate-500">Тип:</span><div class="flex gap-2"><button type="button" data-gtype="audio" class="gtype-btn px-3 py-1.5 rounded-lg bg-[color:var(--accent)] text-[color:var(--bg-0)] text-xs font-bold">🎙 Голос</button><button type="button" data-gtype="video" class="gtype-btn px-3 py-1.5 rounded-lg bg-white/5 text-slate-400 text-xs font-bold">📹 Видео</button></div></div>
+    <button id="startGroupCallBtn" type="button" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-[color:var(--accent-2)] to-[color:var(--accent)] text-[color:var(--bg-0)] font-extrabold text-sm">🚀 Начать групповой сеанс</button>
+  </div>
+</div>
+
+<div id="callOverlay" class="fixed inset-0 z-[5000] bg-[color:var(--bg-0)] hidden flex-col justify-between overflow-hidden">
+  <div id="remoteVideoContainer" class="absolute inset-0 hidden"><video id="remoteVideo" autoplay playsinline class="w-full h-full object-cover bg-black"></video></div>
+  <div id="groupVideoContainer" class="absolute inset-0 p-2 pt-16 pb-28 hidden"><div id="groupVideoGrid"></div></div>
+  <div class="absolute inset-0 bg-gradient-to-b from-black/70 via-transparent to-black/85 pointer-events-none z-10"></div>
+  <div id="callReactionsLayer" class="absolute inset-0 pointer-events-none z-40 overflow-hidden"></div>
+
+  <div class="relative z-30 p-4 flex items-center justify-between gap-2">
+    <div class="flex items-center gap-2 flex-wrap">
+      <button id="minimizeCallBtn" type="button" class="w-10 h-10 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"><i class="fas fa-compress-alt"></i></button>
+      <div class="px-3 py-1.5 rounded-xl bg-black/50 border border-white/10 flex items-center gap-2"><span id="callSignalDot" class="w-2.5 h-2.5 rounded-full bg-[color:var(--warn)] animate-pulse"></span><span id="callTopStatus" class="text-[11px] font-bold text-white">Соединение...</span><span id="callTimerText" class="text-[11px] font-mono text-[color:var(--accent)] font-bold hidden">00:00</span></div>
+      <div id="recIndicator" class="hidden items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[color:var(--danger)] text-white text-[10px] font-bold"><span class="w-2 h-2 rounded-full bg-white rec-dot"></span> REC</div>
+      <div id="groupBadge" class="hidden px-2.5 py-1 rounded-lg bg-[color:var(--accent-2)] text-white text-[10px] font-bold"><i class="fas fa-users"></i> <span id="groupMemberCount">0</span></div>
+    </div>
+    <div class="flex items-center gap-2"><div class="px-3 py-1.5 rounded-xl bg-black/50 border border-[color:var(--accent)]/30 text-[11px] font-mono text-[color:var(--accent)] flex items-center gap-2"><i class="fas fa-signal"></i><span id="liveBitrateText">0 kbps</span><span class="text-slate-600">|</span><span id="liveBytesText">0.00 MB</span></div><button id="toggleStatsDrawerBtn" type="button" class="w-10 h-10 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 flex items-center justify-center text-sm"><i class="fas fa-microchip"></i></button></div>
+  </div>
+
+  <div id="callDiagnosticsDrawer" class="hidden relative z-30 mx-4 sm:mx-auto sm:max-w-md panel rounded-2xl p-3.5 text-xs shadow-2xl">
+    <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-white/10"><span class="font-bold text-[color:var(--accent-2)] flex items-center gap-1.5"><i class="fas fa-microchip"></i> Диагностика</span><button id="iceRestartBtn" type="button" class="px-2.5 py-1 rounded-lg bg-[color:var(--accent-2)] hover:brightness-110 text-white font-bold text-[10px]">🔄 ICE</button></div>
+    <div class="grid grid-cols-2 gap-2 font-mono text-[11px] text-slate-400"><div>Маршрут: <b id="diagRoute" class="text-white">...</b></div><div>Пинг: <b id="diagRtt" class="text-[color:var(--accent)]">--</b></div><div>ICE: <b id="diagIceState" class="text-[color:var(--warn)]">new</b></div><div>Режим: <b id="diagPresetName" class="text-[color:var(--accent-2)]">ECO</b></div></div>
+  </div>
+
+  <div id="callCenterInfo" class="relative z-20 flex flex-col items-center justify-center px-4 my-auto text-center pointer-events-none">
+    <div id="callAvatarCircle" class="w-32 h-32 sm:w-36 sm:h-36 rounded-full bg-gradient-to-tr from-[color:var(--accent-2)] via-[color:var(--accent)] to-[color:var(--accent-2)] flex items-center justify-center text-5xl font-extrabold text-white shadow-2xl ring-pulse mb-4 border-4 border-white/15 overflow-hidden"><img id="callAvatarImg" class="w-full h-full object-cover hidden" alt=""><span id="callAvatarText">👤</span></div>
+    <h2 id="callPartnerName" class="text-2xl font-extrabold text-white tracking-tight">Имя</h2>
+    <p class="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5"><i class="fas fa-shield-halved text-[color:var(--accent)]"></i><span>P2P / TURN</span></p>
+  </div>
+
+  <div id="pipContainer" class="hidden absolute top-20 right-4 z-30 w-28 h-40 sm:w-36 sm:h-48 rounded-2xl overflow-hidden border-2 border-white/30 shadow-2xl bg-black cursor-move"><video id="localVideo" autoplay playsinline muted class="w-full h-full object-cover"></video><div class="absolute bottom-1.5 left-2 right-2 flex items-center justify-between text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-md"><span>Вы</span><i class="fas fa-arrows-up-down-left-right opacity-75"></i></div></div>
+
+  <div class="relative z-30 p-4 flex flex-col items-center gap-3">
+    <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 border border-white/10"><button type="button" data-react="👋" class="react-btn text-lg hover:scale-125 transition px-1">👋</button><button type="button" data-react="❤️" class="react-btn text-lg hover:scale-125 transition px-1">❤️</button><button type="button" data-react="🔥" class="react-btn text-lg hover:scale-125 transition px-1">🔥</button><button type="button" data-react="👍" class="react-btn text-lg hover:scale-125 transition px-1">👍</button><button type="button" data-react="😂" class="react-btn text-lg hover:scale-125 transition px-1">😂</button></div>
+    <div class="flex items-center justify-center gap-2 flex-wrap"><button id="btnToggleMic" type="button" class="ctrl-btn"><i class="fas fa-microphone"></i></button><button id="btnToggleCam" type="button" class="ctrl-btn"><i class="fas fa-video"></i></button><button id="btnSwitchCam" type="button" class="ctrl-btn"><i class="fas fa-camera-rotate"></i></button><button id="btnShareScreen" type="button" class="ctrl-btn"><i class="fas fa-desktop"></i></button><button id="btnInviteGroup" type="button" class="ctrl-btn hidden"><i class="fas fa-user-plus"></i></button><button id="btnAcceptCall" type="button" class="hidden w-16 h-16 rounded-full bg-[color:var(--accent)] hover:brightness-110 text-[color:var(--bg-0)] items-center justify-center text-2xl shadow-xl animate-bounce"><i class="fas fa-phone"></i></button><button id="btnHangupCall" type="button" class="w-16 h-16 rounded-full bg-[color:var(--danger)] text-white flex items-center justify-center text-2xl shadow-xl active:scale-95"><i class="fas fa-phone-slash"></i></button></div>
+  </div>
+  <audio id="remoteAudio" autoplay playsinline></audio>
+</div>
+
+<script>
+/* ================== FIREBASE ================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyCf1UO6hrlYXR2GYcgGZUfsbit4Zav1m4E",
+  authDomain: "trolldonor.firebaseapp.com",
+  databaseURL: "https://trolldonor-default-rtdb.firebaseio.com",
+  projectId: "trolldonor",
+  storageBucket: "trolldonor.firebasestorage.app",
+  messagingSenderId: "761197257675",
+  appId: "1:761197257675:web:53dc596cf349d0cd474c4e"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+const ICE_SERVERS = [
+  { urls:'stun:stun.l.google.com:19302' },
+  { urls:'stun:stun1.l.google.com:19302' },
+  { urls:'turns:global.relay.metered.ca:443?transport=tcp', username:'ea04614136046595f92339d9', credential:'/f3WYIMo8m6vYy/B' },
+  { urls:'turn:global.relay.metered.ca:443', username:'ea04614136046595f92339d9', credential:'/f3WYIMo8m6vYy/B' },
+  { urls:'turn:global.relay.metered.ca:80', username:'ea04614136046595f92339d9', credential:'/f3WYIMo8m6vYy/B' }
+];
+
+const TRAFFIC_PRESETS = {
+  ultra: { id:'ultra', title:'Ультра', desc:'240p • 12fps', videoConstraints:{ width:{ideal:240,max:320}, height:{ideal:180,max:240}, frameRate:{ideal:12,max:15} }, videoMaxBitrate:110000, audioMaxBitrate:24000 },
+  eco: { id:'eco', title:'Эко', desc:'360p • 15fps', videoConstraints:{ width:{ideal:320,max:480}, height:{ideal:240,max:360}, frameRate:{ideal:15,max:20} }, videoMaxBitrate:220000, audioMaxBitrate:28000 },
+  hd: { id:'hd', title:'HD', desc:'480p • 24fps', videoConstraints:{ width:{ideal:640,max:854}, height:{ideal:480,max:480}, frameRate:{ideal:24,max:25} }, videoMaxBitrate:500000, audioMaxBitrate:40000 }
+};
+
+/* ================== STATE ================== */
+const LS = { user:'dc_user', remember:'dc_remember', preset:'dc_preset', turn:'dc_force_turn', record:'dc_record_calls', headph:'dc_headphones' };
+const state = {
+  currentUser: null, users: {},
+  favorites: JSON.parse(localStorage.getItem('dc_favorites')||'{}'),
+  callHistory: JSON.parse(localStorage.getItem('dc_history')||'[]'),
+  activeTab: 'contacts', selectedContactId: null,
+  trafficPreset: localStorage.getItem(LS.preset)||'eco',
+  forceTurn: localStorage.getItem(LS.turn)==='true',
+  recordCalls: localStorage.getItem(LS.record)!=='false',
+  headphonesMode: localStorage.getItem(LS.headph)==='true',
+  sessionTotalBytes: 0,
+  groupInvitees: [], groupType: 'audio'
+};
+
+const $ = id => document.getElementById(id);
+const esc = s => s ? String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : '';
+
+function showToast(msg, type='info'){
+  const c = $('toastContainer'); if(!c) return;
+  const col = { info:'border-[color:var(--accent-2)]/50 text-white', success:'border-[color:var(--accent)]/50 text-[color:var(--accent)]', error:'border-[color:var(--danger)]/50 text-[color:var(--danger)]' };
+  const el = document.createElement('div');
+  el.className = `px-4 py-3 rounded-xl border bg-[color:var(--bg-1)] shadow-2xl text-xs font-semibold flex items-center gap-2 pointer-events-auto transition-all ${col[type]||col.info}`;
+  el.innerHTML = `<i class="fas ${type==='error'?'fa-circle-exclamation':type==='success'?'fa-circle-check':'fa-bell'}"></i><span>${esc(msg)}</span>`;
+  c.appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; setTimeout(()=>el.remove(),250); }, 3200);
+}
+function confirmDialog({ title='Подтверждение', message='', okText='ОК', cancelText='Отмена' }){
+  return new Promise(resolve=>{
+    const m = $('customDialogModal'); $('dialogTitle').innerText = title; $('dialogMessage').innerText = message;
+    $('dialogConfirmBtn').innerText = okText; $('dialogCancelBtn').innerText = cancelText;
+    m.classList.remove('hidden'); m.classList.add('flex');
+    const done = r => { m.classList.add('hidden'); m.classList.remove('flex'); $('dialogConfirmBtn').onclick=null; $('dialogCancelBtn').onclick=null; resolve(r); };
+    $('dialogConfirmBtn').onclick = () => done(true); $('dialogCancelBtn').onclick = () => done(false);
+  });
+}
+async function sha256(text){
+  try{ const buf = new TextEncoder().encode(text); const hash = await crypto.subtle.digest('SHA-256', buf); return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+  catch(e){ let h=0; for(let i=0;i<text.length;i++){ h=((h<<5)-h)+text.charCodeAt(i); h|=0; } return 'fb_'+Math.abs(h).toString(16); }
+}
+
+/* ================== СЖАТИЕ АВАТАРКИ ================== */
+async function compressAvatarImage(file){
+  return new Promise((resolve, reject)=>{
+    if(!file || !file.type.startsWith('image/')) { reject(new Error('Не картинка')); return; }
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 200; let { width: w, height: h } = img;
+        if(w > h){ h = Math.round(h * MAX / w); w = MAX; } else { w = Math.round(w * MAX / h); h = MAX; }
+        const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d'); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(img, 0, 0, w, h);
+        let quality = 0.7; let dataUrl = canvas.toDataURL('image/jpeg', quality);
+        while(dataUrl.length > 40 * 1024 && quality > 0.3){ quality -= 0.1; dataUrl = canvas.toDataURL('image/jpeg', quality); }
+        resolve(dataUrl);
+      };
+      img.onerror = () => reject(new Error('Битая картинка'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('Ошибка чтения файла'));
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ================== АУДИО ================== */
+let synthCtx=null, ringTimer=null, dialTimer=null;
+function ensureAC(){ try{ const A = window.AudioContext||window.webkitAudioContext; if(!A) return null; if(!synthCtx) synthCtx = new A(); if(synthCtx.state==='suspended') synthCtx.resume(); return synthCtx; }catch(e){ return null; } }
+function playTone(freq, dur, type='sine', gain=0.25){ const ctx = ensureAC(); if(!ctx) return; try{ const o=ctx.createOscillator(), g=ctx.createGain(); o.type=type; o.frequency.value=freq; g.gain.value=gain; o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime+dur/1000); }catch(e){} }
+function startRingtone(){ stopTones(); const p=()=>{ playTone(659,180,'sine',0.3); setTimeout(()=>playTone(880,180,'sine',0.3),200); setTimeout(()=>playTone(1046,280,'sine',0.3),400); try{ navigator.vibrate && navigator.vibrate([400,200,400]); }catch(e){} }; p(); ringTimer = setInterval(p, 2000); }
+function startDialtone(){ stopTones(); const p=()=>playTone(425,750,'sine',0.15); p(); dialTimer = setInterval(p, 2800); }
+function stopTones(){ if(ringTimer){ clearInterval(ringTimer); ringTimer=null; } if(dialTimer){ clearInterval(dialTimer); dialTimer=null; } try{ navigator.vibrate && navigator.vibrate(0); }catch(e){} }
+
+function saveProfileLocal(user, remember){ try{ localStorage.setItem(LS.user, JSON.stringify(user)); localStorage.setItem(LS.remember, remember?'true':'false'); }catch(e){} }
+function clearProfileLocal(){ try{ localStorage.removeItem(LS.user); localStorage.removeItem(LS.remember); }catch(e){} }
+function loadProfileLocal(){ try{ const remember = localStorage.getItem(LS.remember)==='true'; const raw = localStorage.getItem(LS.user); if(!raw) return null; const u = JSON.parse(raw); if(!u||!u.id) return null; return {user:u, remember}; }catch(e){ return null; } }
+
+/* ================== USERS LISTENER ================== */
+let usersRef = null;
+function initUsersListener(){
+  if(usersRef) usersRef.off();
+  usersRef = db.ref('users');
+  usersRef.on('value', snap=>{
+    const val = snap.val()||{};
+    state.users = val;
+    const c = $('authUsersCount'); if(c) c.innerText = Object.keys(val).length;
+    if(state.currentUser){
+      renderLeftList();
+      if(state.selectedContactId) renderSelectedContactCard(state.selectedContactId);
+      updateMyHeaderUI();
+    }
+  });
+}
+
+/* ================== AUTH ================== */
+async function handleAuth(){
+  const rawName = ($('authName').value||'').trim();
+  const password = ($('authPassword').value||'').trim();
+  const rawAvatar = ($('authAvatar').value||'').trim();
+  const preset = $('authTrafficPreset').value||'eco';
+  const remember = $('authRememberMe').checked;
+  const cleanId = rawName.replace(/[.#$\[\]\/]/g,'');
+  if(!cleanId || !password){ showToast('Введите ник и пароль','error'); return; }
+
+  const avatar = (rawAvatar || cleanId.slice(0,2)).toUpperCase();
+  const passHash = await sha256(password);
+  state.trafficPreset = preset;
+  localStorage.setItem(LS.preset, preset);
+
+  try{
+    const snap = await db.ref('users/'+cleanId).once('value');
+    let userObj;
+    if(snap.exists()){
+      const u = snap.val();
+      let storedHash = u.passwordHash || (u.password ? await sha256(u.password) : null);
+      if(storedHash && storedHash !== passHash){ showToast('Неверный пароль','error'); return; }
+      userObj = { id: cleanId, name: u.name||cleanId, avatar: u.avatar||avatar, avatarImage: u.avatarImage||null, bio: u.bio||'На связи' };
+      await db.ref('users/'+cleanId).update({ status:'online', lastSeen: Date.now(), passwordHash: storedHash||passHash, password: null });
+    } else {
+      userObj = { id: cleanId, name: cleanId, avatar, avatarImage:null, bio:'На связи' };
+      await db.ref('users/'+cleanId).set({ ...userObj, passwordHash: passHash, status:'online', createdAt: Date.now(), lastSeen: Date.now() });
+    }
+    saveProfileLocal(userObj, remember);
+    state.currentUser = userObj;
+    launchApp();
+  }catch(err){ showToast('Firebase: '+err.message,'error'); }
+}
+
+function launchApp(){
+  $('authScreen').classList.add('hidden');
+  $('appContainer').classList.remove('hidden');
+  updateMyHeaderUI(); updatePresetUI(); setupPresence(); initUsersListener(); renderLeftList(); CallEngine.listenIncoming();
+}
+
+function setupPresence(){
+  if(!state.currentUser) return;
+  const ref = db.ref('users/'+state.currentUser.id);
+  db.ref('.info/connected').on('value', s=>{
+    if(s.val()===true){
+      ref.onDisconnect().update({ status:'offline', lastSeen: firebase.database.ServerValue.TIMESTAMP });
+      ref.update({ status:'online', lastSeen: Date.now() });
+    }
+  });
+}
+
+/* Фикс авто-входа при сворачивании вкладки */
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible' && state.currentUser) {
+    db.ref('users/'+state.currentUser.id).update({ status:'online', lastSeen: Date.now() }).catch(()=>{});
+  }
+});
+
+function updateMyHeaderUI(){
+  if(!state.currentUser) return;
+  $('myNameText').innerText = state.currentUser.name;
+  $('myStatusSub').innerText = state.currentUser.bio || 'На связи';
+  const img = $('myAvatarImg'), txt = $('myAvatarText');
+  if(state.currentUser.avatarImage){ img.src = state.currentUser.avatarImage; img.classList.remove('hidden'); txt.classList.add('hidden'); }
+  else { img.classList.add('hidden'); txt.classList.remove('hidden'); txt.innerText = state.currentUser.avatar || state.currentUser.name.slice(0,2).toUpperCase(); }
+  $('myEcoBadge').innerText = (state.trafficPreset||'eco').toUpperCase();
+}
+
+function updatePresetUI(){
+  const p = TRAFFIC_PRESETS[state.trafficPreset] || TRAFFIC_PRESETS.eco;
+  $('statPresetTitle').innerText = p.title.toUpperCase(); $('forceTurnToggle').checked = state.forceTurn;
+  $('footerNetworkMode').innerText = state.forceTurn ? 'TURN ONLY' : 'AUTO STUN/TURN';
+  document.querySelectorAll('.preset-card-btn').forEach(b=>{ const on = b.dataset.preset === p.id; b.classList.toggle('border-[color:var(--accent)]/50', on); b.classList.toggle('bg-[color:var(--accent)]/10', on); });
+  $('myEcoBadge').innerText = p.id.toUpperCase();
+}
+
+/* ================== СПИСКИ ================== */
+function toggleFavorite(uid){
+  if(state.favorites[uid]) delete state.favorites[uid]; else state.favorites[uid]=true;
+  localStorage.setItem('dc_favorites', JSON.stringify(state.favorites)); renderLeftList();
+}
+function addHistory({uid,name,type,direction,durationSec,callId,isGroup,groupCount}){
+  state.callHistory.unshift({ id:'h_'+Date.now(), uid, name:name||uid, type:type||'audio', direction, durationSec:durationSec||0, ts:Date.now(), callId:callId||null, isGroup:!!isGroup, groupCount:groupCount||1 });
+  if(state.callHistory.length>40) state.callHistory.length=40;
+  localStorage.setItem('dc_history', JSON.stringify(state.callHistory));
+  if(state.activeTab==='history') renderLeftList();
+}
+
+function avatarHTML(user, sizeClass='w-11 h-11', textClass='text-sm'){
+  if(user && user.avatarImage){ return `<div class="${sizeClass} rounded-xl bg-slate-800 overflow-hidden shrink-0"><img src="${user.avatarImage}" class="w-full h-full object-cover" alt=""></div>`; }
+  const txt = user ? (user.avatar || (user.name||'').slice(0,2).toUpperCase() || '??') : '??';
+  return `<div class="${sizeClass} rounded-xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-white font-bold ${textClass} shrink-0">${esc(txt)}</div>`;
+}
+
+function renderLeftList(){
+  const c = $('leftListContainer'); if(!c || !state.currentUser) return;
+  if(state.activeTab==='history'){ renderHistoryTab(c); return; }
+  const q = ($('contactSearchInput').value||'').trim().toLowerCase();
+  const others = Object.keys(state.users).filter(uid=>uid!==state.currentUser.id);
+  const onlineCnt = others.filter(uid=>{ const s = state.users[uid]?.status; return s==='online'||s==='in_call'; }).length;
+  $('onlineCounterBadge').innerText = onlineCnt;
+
+  let ids = others.filter(uid=>{
+    if(state.activeTab==='favorites' && !state.favorites[uid]) return false;
+    const u = state.users[uid]||{}; const n = (u.name||uid).toLowerCase();
+    return !q || n.includes(q) || uid.toLowerCase().includes(q);
+  });
+  ids.sort((a,b)=>{ const ua = state.users[a]||{}, ub = state.users[b]||{}; const oA = (ua.status==='online'||ua.status==='in_call')?1:0, oB = (ub.status==='online'||ub.status==='in_call')?1:0; if(oA!==oB) return oB-oA; return (ua.name||a).localeCompare(ub.name||b); });
+
+  if(ids.length===0){ c.innerHTML = `<div class="text-center py-12 px-4 text-slate-500"><i class="fas fa-satellite text-3xl mb-2 opacity-30"></i><p class="text-xs font-bold uppercase tracking-wider">${state.activeTab==='favorites'?'Нет важных':'Пусто'}</p><p class="text-[10px] mt-1">Введи ник в поиск и жми →</p></div>`; return; }
+
+  c.innerHTML = ids.map(uid=>{
+    const u = state.users[uid]||{};
+    const on = u.status==='online', busy = u.status==='in_call', fav = !!state.favorites[uid], av = avatarHTML(u);
+    return `<div class="glass-card p-2.5 rounded-2xl flex items-center gap-2.5 hover:bg-white/[.03] transition border ${state.selectedContactId===uid?'border-[color:var(--accent)]/40 bg-[color:var(--accent)]/5':'border-white/5'}">
+      <div class="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer" data-select-uid="${esc(uid)}"><div class="relative">${av}<span class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[color:var(--bg-1)] ${busy?'bg-[color:var(--warn)]':on?'bg-[color:var(--accent)]':'bg-slate-600'}"></span></div>
+      <div class="min-w-0 flex-1"><div class="flex items-center gap-1.5"><span class="font-bold text-sm text-white truncate">${esc(u.name||uid)}</span>${busy?'<span class="text-[9px] px-1 rounded bg-[color:var(--warn)]/20 text-[color:var(--warn)] font-bold">BUSY</span>':''}</div><p class="text-[11px] text-slate-500 truncate">${esc(u.bio||(on?'🟢 в сети':'⚫ offline'))}</p></div></div>
+      <div class="flex items-center gap-1 shrink-0"><button type="button" data-fav-uid="${esc(uid)}" class="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center ${fav?'text-[color:var(--warn)]':'text-slate-600'}"><i class="fas fa-star text-[10px]"></i></button><button type="button" data-call-audio="${esc(uid)}" class="w-9 h-9 rounded-xl bg-[color:var(--accent)]/15 hover:bg-[color:var(--accent)] text-[color:var(--accent)] hover:text-[color:var(--bg-0)] flex items-center justify-center transition"><i class="fas fa-phone text-xs"></i></button><button type="button" data-call-video="${esc(uid)}" class="w-9 h-9 rounded-xl bg-[color:var(--accent-2)]/15 hover:bg-[color:var(--accent-2)] text-[color:var(--accent-2)] hover:text-white flex items-center justify-center transition"><i class="fas fa-video text-xs"></i></button></div>
+    </div>`;
+  }).join('');
+}
+
+function renderSelectedContactCard(uid){
+  state.selectedContactId = uid; const u = state.users[uid]; if(!u) return;
+  $('detailEmpty').classList.add('hidden'); $('selectedContactCard').classList.remove('hidden');
+  const img = $('detailAvatarImg'), txt = $('detailAvatarText');
+  if(u.avatarImage){ img.src = u.avatarImage; img.classList.remove('hidden'); txt.classList.add('hidden'); } else { img.classList.add('hidden'); txt.classList.remove('hidden'); txt.innerText = u.avatar || (u.name||uid).slice(0,2).toUpperCase(); }
+  $('detailName').innerText = u.name || uid; $('detailStatusBadge').innerText = u.status==='online'?'🟢 ONLINE':(u.status==='in_call'?'🟡 BUSY':'⚫ OFFLINE');
+  $('detailBio').innerText = u.bio || '—'; $('detailUid').innerText = uid;
+}
+
+/* ================== ЖУРНАЛ / ЗАПИСЬ ================== */
+const activeAudio = {};
+async function renderHistoryTab(c){
+  if(state.callHistory.length===0){ c.innerHTML = `<div class="text-center py-12 px-4 text-slate-500"><i class="fas fa-clock-rotate-left text-3xl mb-2 opacity-30"></i><p class="text-xs font-bold uppercase tracking-wider">Журнал пуст</p></div>`; return; }
+  let recs = []; try { recs = await RecordingStore.list(); } catch(e){}
+  const byCall = {}; recs.forEach(r=>{ if(r.callId){ (byCall[r.callId]=byCall[r.callId]||[]).push(r); } });
+
+  c.innerHTML = state.callHistory.map(h=>{
+    const icon = h.direction==='missed' ? '<i class="fas fa-phone-slash text-[color:var(--danger)]"></i>' : h.direction==='incoming' ? '<i class="fas fa-arrow-down-left text-[color:var(--accent)]"></i>' : '<i class="fas fa-arrow-up-right text-[color:var(--accent-2)]"></i>';
+    const t = new Date(h.ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}), d = new Date(h.ts).toLocaleDateString([], {day:'2-digit',month:'2-digit'});
+    const dur = h.durationSec>0 ? `${Math.floor(h.durationSec/60)}:${String(h.durationSec%60).padStart(2,'0')}` : 'НЕТ ОТВЕТА';
+    const groupTag = h.isGroup ? `<span class="text-[9px] px-1.5 py-0.5 rounded bg-[color:var(--accent-2)]/20 text-[color:var(--accent-2)] font-bold">👥 ${h.groupCount||''}</span>` : '';
+    const recs = (h.callId && byCall[h.callId])||[];
+    const recHtml = recs.map(r=>{
+      const recDur = `${Math.floor(r.durationSec/60)}:${String(r.durationSec%60).padStart(2,'0')}`;
+      return `<div class="mt-2 pt-2 border-t border-white/10 rec-block" data-rec-id="${esc(r.id)}">
+        <div class="flex items-center gap-2 mb-1.5 text-[10px] text-slate-500 font-mono"><i class="fas fa-circle-dot text-[color:var(--danger)] text-[8px]"></i><span>REC • ${recDur} • ${(r.size/1024).toFixed(0)} КБ</span><button type="button" data-del-rec="${esc(r.id)}" class="ml-auto text-[color:var(--danger)] hover:brightness-110"><i class="fas fa-trash text-[10px]"></i></button></div>
+        <div class="flex items-center gap-2 bg-[color:var(--bg-0)] rounded-xl p-2 border border-white/5"><button type="button" data-play-rec="${esc(r.id)}" class="w-8 h-8 rounded-lg bg-[color:var(--accent)] text-[color:var(--bg-0)] flex items-center justify-center"><i class="fas fa-play text-xs"></i></button><input type="range" min="0" max="1000" value="0" data-seek-rec="${esc(r.id)}" class="flex-1 accent-[color:var(--accent)] h-1 bg-slate-700 rounded cursor-pointer"><span data-time-rec="${esc(r.id)}" class="text-[10px] font-mono text-slate-500 w-16 text-right">00:00 / ${recDur}</span></div>
+      </div>`;
+    }).join('');
+    return `<div class="glass-card p-2.5 rounded-2xl border border-white/5"><div class="flex items-center gap-3"><div class="flex-1 min-w-0 cursor-pointer" data-select-uid="${esc(h.uid)}"><div class="font-bold text-sm text-white truncate flex items-center gap-1.5">${esc(h.name)} ${groupTag}</div><div class="text-[10px] text-slate-500 flex items-center gap-1.5 mt-0.5">${icon}<span>${h.type==='video'?'ВИДЕО':'ГОЛОС'} • ${dur} • ${t} ${d}</span></div></div></div>${recHtml}</div>`;
+  }).join('');
+
+  c.querySelectorAll('[data-play-rec]').forEach(b=>b.addEventListener('click', ()=>togglePlayRec(b.dataset.playRec)));
+  c.querySelectorAll('[data-seek-rec]').forEach(s=>s.addEventListener('input', ()=>{ const ctx = activeAudio[s.dataset.seekRec]; if(ctx?.audio?.duration){ ctx.audio.currentTime = (Number(s.value)/1000)*ctx.audio.duration; } }));
+  c.querySelectorAll('[data-del-rec]').forEach(b=>b.addEventListener('click', async ()=>{ const ok = await confirmDialog({ title:'Удалить запись?', message:'Будет удалена с устройства.', okText:'Удалить' }); if(!ok) return; stopPlayRec(b.dataset.delRec); await RecordingStore.remove(b.dataset.delRec); renderLeftList(); }));
+}
+function fmtTime(sec){ sec = Math.max(0, Math.floor(sec)); return `${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`; }
+async function togglePlayRec(id){
+  const cur = activeAudio[id]; if(cur?.audio && !cur.audio.paused){ cur.audio.pause(); updatePlayBtn(id,false); return; }
+  for(const k in activeAudio){ if(k!==id) stopPlayRec(k); }
+  let ctx = activeAudio[id];
+  if(!ctx){
+    const rec = await RecordingStore.get(id); if(!rec?.blob){ showToast('Не найдено','error'); return; }
+    const url = URL.createObjectURL(rec.blob); const audio = new Audio(); audio.preload='metadata'; audio.src=url;
+    ctx = { audio, url }; activeAudio[id] = ctx;
+    audio.addEventListener('timeupdate', ()=>{ const s = document.querySelector(`[data-seek-rec="${id}"]`), t = document.querySelector(`[data-time-rec="${id}"]`); if(audio.duration){ if(s) s.value = String(Math.round((audio.currentTime/audio.duration)*1000)); if(t) t.innerText = `${fmtTime(audio.currentTime)} / ${fmtTime(audio.duration)}`; } });
+    audio.addEventListener('ended', ()=>updatePlayBtn(id,false));
+  }
+  try { await ctx.audio.play(); updatePlayBtn(id,true); } catch(e){ showToast('Ошибка','error'); }
+}
+function stopPlayRec(id){ const ctx = activeAudio[id]; if(!ctx) return; try{ ctx.audio.pause(); }catch(e){} updatePlayBtn(id,false); }
+function updatePlayBtn(id, playing){ const b = document.querySelector(`.rec-block[data-rec-id="${id}"] [data-play-rec]`); if(b) b.innerHTML = playing ? '<i class="fas fa-pause text-xs"></i>' : '<i class="fas fa-play text-xs"></i>'; }
+function stopAllPlay(){ for(const k in activeAudio) stopPlayRec(k); }
+
+const RecordingStore = (()=>{
+  const DB='dc_recordings_db', STORE='recordings', MAX_REC=20, MAX_BYTES=60*1024*1024; let promise=null;
+  function open(){ if(promise) return promise; promise = new Promise((res,rej)=>{ const r = indexedDB.open(DB,1); r.onupgradeneeded=()=>{ const d = r.result; if(!d.objectStoreNames.contains(STORE)){ const s = d.createObjectStore(STORE,{keyPath:'id'}); s.createIndex('ts','ts'); s.createIndex('callId','callId'); } }; r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); return promise; }
+  async function put(rec){ const db = await open(); return new Promise((res,rej)=>{ const tx=db.transaction(STORE,'readwrite'); tx.objectStore(STORE).put(rec); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
+  async function get(id){ const db = await open(); return new Promise((res,rej)=>{ const tx=db.transaction(STORE,'readonly'); const r=tx.objectStore(STORE).get(id); r.onsuccess=()=>res(r.result||null); r.onerror=()=>rej(r.error); }); }
+  async function remove(id){ const db = await open(); return new Promise((res,rej)=>{ const tx=db.transaction(STORE,'readwrite'); tx.objectStore(STORE).delete(id); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
+  async function list(){ const db = await open(); return new Promise((res,rej)=>{ const tx=db.transaction(STORE,'readonly'); const r=tx.objectStore(STORE).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); }); }
+  async function enforce(){ const all = await list(); all.sort((a,b)=>b.ts-a.ts); let total=0, kept=0; for(const r of all){ total+=r.size||0; kept++; if(kept>MAX_REC||total>MAX_BYTES){ try{ await remove(r.id); }catch(e){} } } }
+  async function clear(){ const db = await open(); return new Promise((res,rej)=>{ const tx=db.transaction(STORE,'readwrite'); tx.objectStore(STORE).clear(); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
+  return { put, get, remove, list, enforce, clear };
+})();
+
+const CallRecorder = (()=>{
+  const MAX_SEC = 3600; let actx=null, dest=null, mr=null, chunks=[], startedAt=0, recCallId=null, localNode=null, remoteNodes=[], autoStop=null;
+  const MIME = (()=>{ const cs=['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus']; for(const c of cs){ if(window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(c)) return c; } return ''; })();
+  function supported(){ return !!(window.MediaRecorder && (window.AudioContext||window.webkitAudioContext)); }
+  function start(callId, localStream, remoteStreams, presetAudioRate){
+    if(!supported() || !callId || !state.recordCalls) return false;
+    try{
+      stop(); const A = window.AudioContext||window.webkitAudioContext; actx = new A(); dest = actx.createMediaStreamDestination();
+      if(localStream && localStream.getAudioTracks().length){ localNode = actx.createMediaStreamSource(new MediaStream(localStream.getAudioTracks())); const g = actx.createGain(); g.gain.value = 0.65; localNode.connect(g).connect(dest); }
+      remoteNodes = []; (remoteStreams||[]).forEach(rs=>{ if(!rs || !rs.getAudioTracks().length) return; const src = actx.createMediaStreamSource(new MediaStream(rs.getAudioTracks())); const g = actx.createGain(); g.gain.value = 1.0/Math.max(1,(remoteStreams||[]).length); src.connect(g).connect(dest); remoteNodes.push(src); });
+      if(!dest.stream.getAudioTracks().length){ stop(); return false; }
+      chunks = []; const br = Math.max(16000, Math.min(64000, (presetAudioRate||28000)*2));
+      mr = new MediaRecorder(dest.stream, MIME ? { mimeType:MIME, audioBitsPerSecond:br } : { audioBitsPerSecond:br });
+      mr.ondataavailable = e => { if(e.data.size>0) chunks.push(e.data); }; mr.start(1000); startedAt = Date.now(); recCallId = callId;
+      $('recIndicator').classList.remove('hidden'); $('recIndicator').classList.add('flex');
+      if(autoStop) clearTimeout(autoStop); autoStop = setTimeout(()=>{ try{ stop(); }catch(e){} }, MAX_SEC*1000); return true;
+    }catch(e){ console.warn('rec start fail', e); stop(); return false; }
+  }
+  function stop(){
+    const r = mr; mr = null; if(autoStop){ clearTimeout(autoStop); autoStop = null; }
+    if(r && r.state!=='inactive'){ try{ r.stop(); }catch(e){} }
+    $('recIndicator').classList.add('hidden'); $('recIndicator').classList.remove('flex');
+    return new Promise(resolve=>{
+      const finish = async ()=>{
+        try{ if(chunks.length && recCallId && startedAt){ const blob = new Blob(chunks, { type: MIME||'audio/webm' }); const dur = Math.round((Date.now()-startedAt)/1000); if(blob.size>2000){ await RecordingStore.put({ id:'rec_'+recCallId+'_'+Date.now(), callId: recCallId, ts: startedAt, durationSec: dur, size: blob.size, mime: blob.type||MIME, blob }); await RecordingStore.enforce(); } } }catch(e){}
+        chunks=[]; recCallId=null; startedAt=0; try{ localNode && localNode.disconnect(); }catch(e){} remoteNodes.forEach(n=>{ try{ n.disconnect(); }catch(e){} }); remoteNodes=[]; localNode=null; dest=null; if(actx){ try{ actx.close(); }catch(e){} actx=null; } resolve();
+      };
+      if(r){ r.onstop = finish; if(r.state==='inactive') finish(); } else { finish(); }
+    });
+  }
+  return { start, stop };
+})();
+
+/* ================== WEBRTC (ИСПРАВЛЕНО) ================== */
+const CallEngine = (()=>{
+  let localStream=null, isVideo=false, isGroup=false, isCaller=false, isScreenSharing=false, facing = 'user';
+  let currentCallId=null, currentCallRef=null, incomingRef=null, groupIncomingRef=null, partnerUid=null, partnerName='';
+  let peers = {}, memberOrder = [], acceptedAt=0, timer=null, statsTimer=null, lastBytes=0, lastTs=0, recordingActive=false;
+
+  function iceConf(){ return { iceServers: ICE_SERVERS, iceTransportPolicy: state.forceTurn ? 'relay' : 'all', iceCandidatePoolSize:0 }; }
+  function tuneSdp(sdp){ if(!sdp) return sdp; const p = TRAFFIC_PRESETS[state.trafficPreset] || TRAFFIC_PRESETS.eco; try{ if(sdp.includes('opus/48000')){ sdp = sdp.replace(/a=fmtp:111 (.*)/g, `a=fmtp:111 $1;usedtx=1;useinbandfec=1;maxaveragebitrate=${p.audioMaxBitrate};stereo=0`); } }catch(e){} return sdp; }
+  async function applyBitrate(pc){ if(!pc) return; const p = TRAFFIC_PRESETS[state.trafficPreset] || TRAFFIC_PRESETS.eco; for(const s of (pc.getSenders?pc.getSenders():[])){ if(!s.track || !s.getParameters) continue; try{ const params = s.getParameters(); if(!params.encodings || !params.encodings.length) params.encodings=[{}]; if(s.track.kind==='video'){ params.encodings[0].maxBitrate = p.videoMaxBitrate; params.encodings[0].maxFramerate = p.videoConstraints.frameRate.max; } else if(s.track.kind==='audio'){ params.encodings[0].maxBitrate = p.audioMaxBitrate; } await s.setParameters(params); }catch(e){} } }
+  async function getMedia(wantVideo, forcedFacing){
+    const p = TRAFFIC_PRESETS[state.trafficPreset] || TRAFFIC_PRESETS.eco;
+    const audioConstraints = { echoCancellation: { ideal: true }, noiseSuppression: { ideal: true }, autoGainControl: { ideal: true }, channelCount: 1, sampleRate: 48000 };
+    const wantFacing = forcedFacing || facing;
+    const videoConstraints = wantVideo ? { width: { ideal: p.videoConstraints.width.ideal }, height: { ideal: p.videoConstraints.height.ideal }, frameRate: { ideal: p.videoConstraints.frameRate.ideal, max: p.videoConstraints.frameRate.max }, facingMode: { ideal: wantFacing } } : false;
+    try{ return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: videoConstraints }); }
+    catch(err){ if(wantVideo){ try { return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: true }); } catch(e2){ showToast('Камера недоступна','info'); isVideo = false; return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false }); } } throw err; }
+  }
+  function attachLocal(){ const lv = $('localVideo'); if(lv){ lv.srcObject = localStream; lv.play().catch(()=>{}); } }
+  function setupView(mode){ $('callCenterInfo').classList.toggle('hidden', mode !== 'center'); $('remoteVideoContainer').classList.toggle('hidden', mode !== 'video'); $('pipContainer').classList.toggle('hidden', mode !== 'video'); $('groupVideoContainer').classList.toggle('hidden', mode !== 'group'); }
+
+  function rebuildGrid(){
+    const grid = $('groupVideoGrid'); grid.innerHTML = ''; const all = ['__me__', ...memberOrder]; grid.className = 'g' + Math.min(4, Math.max(2, all.length));
+    { const t = document.createElement('div'); t.className='group-tile'; const v = document.createElement('video'); v.autoplay=true; v.playsInline=true; v.muted=true; v.srcObject = localStream; t.appendChild(v); const l = document.createElement('div'); l.className='label'; l.innerHTML = `<span>${esc(state.currentUser?.name||'Вы')} (Вы)</span><i class="fas fa-microphone"></i>`; t.appendChild(l); grid.appendChild(t); }
+    for(const uid of memberOrder){ const m = peers['g_'+uid]; if(!m) continue; const t = document.createElement('div'); t.className='group-tile'; const v = document.createElement('video'); v.autoplay=true; v.playsInline=true; if(m.stream) v.srcObject = m.stream; t.appendChild(v); const l = document.createElement('div'); l.className='label'; l.innerHTML = `<span>${esc(m.name||uid)}</span><i class="fas fa-microphone"></i>`; t.appendChild(l); grid.appendChild(t); m.videoEl = v; m.tileEl = t; }
+    $('groupMemberCount').innerText = memberOrder.length + 1;
+  }
+  function showCallScreen({name, avatarImage, avatarText, incoming}){
+    $('callOverlay').classList.remove('hidden'); $('callOverlay').classList.add('flex'); $('callPartnerName').innerText = name || 'Абонент'; $('minCallName').innerText = name || 'Абонент';
+    const img = $('callAvatarImg'), txt = $('callAvatarText');
+    if(avatarImage){ img.src = avatarImage; img.classList.remove('hidden'); txt.classList.add('hidden'); } else { img.classList.add('hidden'); txt.classList.remove('hidden'); txt.innerText = avatarText || (name||'?').slice(0,2).toUpperCase(); }
+    const a = $('btnAcceptCall');
+    if(incoming){ a.classList.remove('hidden'); a.classList.add('flex'); $('callTopStatus').innerText = isVideo?'ВХОДЯЩИЙ ВИДЕО':'ВХОДЯЩИЙ ГОЛОС'; } else { a.classList.add('hidden'); a.classList.remove('flex'); $('callTopStatus').innerText='ИСХОДЯЩИЙ'; }
+    setupView('center');
+  }
+  function onConnected(){
+    $('callTopStatus').innerText = isGroup ? 'ГРУППОВОЙ СЕАНС' : (isVideo?'ВИДЕО':'ГОЛОС'); $('callSignalDot').className = 'w-2.5 h-2.5 rounded-full bg-[color:var(--accent)]'; $('callTimerText').classList.remove('hidden');
+    if(!acceptedAt){ acceptedAt = Date.now(); playTone(880,110,'sine',0.2); }
+    if(!timer){ timer = setInterval(()=>{ const s = Math.floor((Date.now()-acceptedAt)/1000); const f = `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; $('callTimerText').innerText = f; $('minCallTimer').innerText = f; },1000); }
+    if(!statsTimer) statsTimer = setInterval(pollStats, 1200);
+    if(state.recordCalls && currentCallId && !recordingActive){
+      try{ const remotes = memberOrder.map(uid=>peers['g_'+uid]?.stream).filter(Boolean); recordingActive = CallRecorder.start(currentCallId, localStream, remotes, (TRAFFIC_PRESETS[state.trafficPreset]||TRAFFIC_PRESETS.eco).audioMaxBitrate); }catch(e){ recordingActive=false; }
+    }
+  }
+  async function pollStats(){
+    let total=0, rtt=null, ctype='';
+    for(const k in peers){ const pc = peers[k].pc; if(!pc) continue; try{ const st = await pc.getStats(); st.forEach(r=>{ if(r.type==='inbound-rtp'||r.type==='outbound-rtp') total += (r.bytesReceived||0)+(r.bytesSent||0); if(r.type==='candidate-pair' && r.state==='succeeded'){ if(r.currentRoundTripTime!=null) rtt = Math.round(r.currentRoundTripTime*1000); const lc = st.get(r.localCandidateId); if(lc && lc.candidateType) ctype = lc.candidateType; } }); }catch(e){} }
+    const now = Date.now();
+    if(lastTs>0 && total>=lastBytes){ const dt = (now-lastTs)/1000, db_ = total-lastBytes; $('liveBitrateText').innerText = `${Math.round((db_*8)/1000/Math.max(.5,dt))} kbps`; state.sessionTotalBytes += db_; }
+    lastBytes=total; lastTs=now; const mb = (total/1048576).toFixed(2); $('liveBytesText').innerText = `${mb} MB`; $('minCallTraffic').innerText = `${mb} MB`; $('sessionBytesLabel').innerText = `${(state.sessionTotalBytes/1048576).toFixed(2)} МБ`; $('statTotalSessionSaved').innerText = `${(state.sessionTotalBytes/1048576).toFixed(2)} МБ`;
+    if(rtt!==null) $('diagRtt').innerText = `${rtt} мс`; if(ctype) $('diagRoute').innerText = ctype==='relay' ? 'TURN' : `P2P ${ctype}`;
+  }
+
+  function createPeerFor(key, uid, name, offerer){
+    const pc = new RTCPeerConnection(iceConf());
+    peers[key] = peers[key] || { pc, uid, name, stream: new MediaStream() }; peers[key].pc = pc; peers[key].name = name;
+    if(isGroup && !memberOrder.includes(uid)) memberOrder.push(uid);
+    pc.onicecandidate = e => { if(e.candidate && currentCallRef){ const path = isGroup ? `peers/${uid}/candidates` : (isCaller?'callerCandidates':'calleeCandidates'); currentCallRef.child(path).push(e.candidate.toJSON()).catch(()=>{}); } };
+    pc.ontrack = e => {
+      const stream = (e.streams && e.streams[0]) || new MediaStream([e.track]); peers[key].stream = stream;
+      if(!isGroup){ $('remoteVideo').srcObject = stream; $('remoteVideo').play().catch(()=>{}); $('remoteAudio').srcObject = stream; $('remoteAudio').play().catch(()=>{}); $('remoteAudio').volume = state.headphonesMode ? 0.5 : 0.85; if(acceptedAt && currentCallId && !recordingActive && state.recordCalls){ try{ recordingActive = CallRecorder.start(currentCallId, localStream, [stream], (TRAFFIC_PRESETS[state.trafficPreset]||TRAFFIC_PRESETS.eco).audioMaxBitrate); }catch(err){} } }
+      else { const m = peers[key]; if(m.videoEl) m.videoEl.srcObject = stream; else rebuildGrid(); }
+    };
+    pc.oniceconnectionstatechange = ()=>{ $('diagIceState').innerText = pc.iceConnectionState; if(pc.iceConnectionState==='connected' || pc.iceConnectionState==='completed'){ stopTones(); if(!acceptedAt) onConnected(); } };
+    return pc;
+  }
+
+  /* --- Исправленный процесс звонка 1-на-1 (Полный цикл сигнализации) --- */
+  async function startCall(target, wantVideo=false){
+    if(!state.currentUser) return; if(currentCallId){ showToast('Уже в звонке','error'); return; }
+    const t = (target||'').trim(); if(!t || t===state.currentUser.id){ showToast('Укажи ник','error'); return; }
+    isCaller=true; isVideo=!!wantVideo; isGroup=false; partnerUid=t; const u = state.users[t] || {}; partnerName = u.name || t;
+    currentCallId = `call_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+    showCallScreen({ name: partnerName, avatarImage: u.avatarImage, avatarText: u.avatar, incoming:false }); startDialtone();
+    try{
+      localStream = await getMedia(isVideo); attachLocal(); if(isVideo) setupView('video');
+      const pc = createPeerFor('single', t, partnerName, true);
+      localStream.getTracks().forEach(tr=>pc.addTrack(tr, localStream));
+      const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:isVideo }); offer.sdp = tuneSdp(offer.sdp); await pc.setLocalDescription(offer);
+      currentCallRef = db.ref('calls/'+currentCallId);
+      await currentCallRef.set({ from: state.currentUser.id, fromName: state.currentUser.name, fromAvatar: state.currentUser.avatar, fromAvatarImage: state.currentUser.avatarImage||null, to: t, type: isVideo?'video':'audio', preset: state.trafficPreset, status:'ringing', createdAt: Date.now(), offer: { type: offer.type, sdp: offer.sdp } });
+      db.ref('users/'+state.currentUser.id).update({ status:'in_call' });
+
+      // Ждём Answer от Калли
+      currentCallRef.child('answer').on('value', async snap=>{
+        const a = snap.val(); if(a && pc.signalingState!=='stable'){ try{ await pc.setRemoteDescription(new RTCSessionDescription(a)); stopTones(); }catch(e){ console.error(e); } }
+      });
+      // Добавляем ICE кандидаты от Калли
+      currentCallRef.child('calleeCandidates').on('child_added', s=>{ const c = s.val(); if(c && pc) pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{}); });
+
+      subscribeSingle(currentCallRef);
+    }catch(err){ showToast('Ошибка медиа: '+err.message,'error'); cleanup('error'); }
+  }
+
+  async function acceptSingle(){
+    const snap = await currentCallRef.once('value'); const d = snap.val(); if(!d?.offer){ cleanup('cancel'); return; }
+    const pc = createPeerFor('single', partnerUid, partnerName, false);
+    localStream.getTracks().forEach(tr=>pc.addTrack(tr, localStream));
+    await pc.setRemoteDescription(new RTCSessionDescription(d.offer));
+    const ans = await pc.createAnswer(); ans.sdp = tuneSdp(ans.sdp); await pc.setLocalDescription(ans);
+
+    // Отправляем Answer Каллеру
+    await currentCallRef.update({ status:'accepted', answer:{ type: ans.type, sdp: ans.sdp } });
+    db.ref('users/'+state.currentUser.id).update({ status:'in_call' });
+
+    // Отправляем свои ICE кандидаты Каллеру
+    currentCallRef.child('callerCandidates').on('child_added', s=>{ const c = s.val(); if(c && pc) pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{}); });
+    if(isVideo) setupView('video');
+  }
+
+  async function acceptIncoming(){
+    if(!currentCallRef) return; stopTones(); $('btnAcceptCall').classList.add('hidden'); $('btnAcceptCall').classList.remove('flex'); $('callTopStatus').innerText = 'УСТАНОВКА...';
+    try{ localStream = await getMedia(isVideo); attachLocal(); if(isGroup) await acceptGroup(); else await acceptSingle(); }
+    catch(err){ showToast('Ошибка: '+err.message,'error'); cleanup('error'); }
+  }
+
+  function listenIncoming(){
+    if(!state.currentUser) return;
+    if(incomingRef) incomingRef.off();
+    incomingRef = db.ref('calls').orderByChild('to').equalTo(state.currentUser.id);
+    incomingRef.on('child_added', snap=>{
+      const d = snap.val(); if(!d || d.status!=='ringing') return;
+      if(Date.now()-(d.createdAt||0) > 90000){ snap.ref.remove().catch(()=>{}); return; }
+      if(currentCallId){ snap.ref.child('status').set('busy'); return; }
+      currentCallId = snap.key; currentCallRef = snap.ref; isCaller=false; isVideo = d.type==='video'; isGroup=false;
+      partnerUid = d.from; partnerName = d.fromName || d.from;
+      showCallScreen({ name: partnerName, avatarImage: d.fromAvatarImage, avatarText: d.fromAvatar, incoming:true }); startRingtone();
+      subscribeSingle(currentCallRef);
+    });
+
+    if(groupIncomingRef) groupIncomingRef.off();
+    groupIncomingRef = db.ref('groupCalls').orderByChild('status').equalTo('ringing');
+    groupIncomingRef.on('child_added', snap=>{
+      const d = snap.val(); if(!d || !d.members || !d.members[state.currentUser.id]) return; if(d.members[state.currentUser.id].joined) return; if(currentCallId) return;
+      currentCallId = snap.key; currentCallRef = snap.ref; isCaller=false; isVideo = d.type==='video'; isGroup=true;
+      partnerName = d.hostName || 'Группа'; const cnt = Object.keys(d.members||{}).length;
+      showCallScreen({ name: `Группа (${cnt})`, avatarText:'👥', incoming:true }); startRingtone(); subscribeGroup(currentCallRef);
+    });
+  }
+
+  // ... (групповой звонок оставлен как был, он работает по mesh-схеме)
+  async function startGroupCall(invitees, wantVideo){
+    if(!state.currentUser) return; if(currentCallId){ showToast('Уже в звонке','error'); return; }
+    const list = (invitees||[]).filter(u=>u && u!==state.currentUser.id).slice(0,3);
+    if(!list.length){ showToast('Выбери участников','error'); return; }
+    isCaller=true; isVideo=!!wantVideo; isGroup=true; currentCallId = `gcall_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+    const all = [state.currentUser.id, ...list]; partnerName = `Группа (${all.length})`;
+    showCallScreen({ name: partnerName, avatarText:'👥', incoming:false }); startDialtone(); $('groupBadge').classList.remove('hidden'); $('groupMemberCount').innerText = all.length;
+    try{
+      localStream = await getMedia(isVideo); attachLocal(); if(isVideo){ setupView('group'); rebuildGrid(); }
+      currentCallRef = db.ref('groupCalls/'+currentCallId);
+      const members = {}; all.forEach(uid => members[uid] = { joined: uid===state.currentUser.id, ts: Date.now() });
+      await currentCallRef.set({ host: state.currentUser.id, hostName: state.currentUser.name, hostAvatar: state.currentUser.avatar, type: isVideo?'video':'audio', preset: state.trafficPreset, status:'ringing', createdAt: Date.now(), members });
+      db.ref('users/'+state.currentUser.id).update({ status:'in_call' });
+
+      for(const uid of list){
+        const u = state.users[uid] || {}; const pc = createPeerFor('g_'+uid, uid, u.name||uid, true);
+        localStream.getTracks().forEach(tr=>pc.addTrack(tr, localStream));
+        const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:isVideo }); offer.sdp = tuneSdp(offer.sdp); await pc.setLocalDescription(offer);
+        await currentCallRef.child(`peers/${uid}/offer`).set({ type: offer.type, sdp: offer.sdp });
+        currentCallRef.child(`peers/${uid}/answer`).on('value', async s=>{ const a = s.val(); if(a && pc.signalingState!=='stable'){ try{ await pc.setRemoteDescription(new RTCSessionDescription(a)); }catch(e){} } });
+        currentCallRef.child(`peers/${uid}/candidates`).on('child_added', s=>{ const c = s.val(); if(c && pc) pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{}); });
+      }
+      subscribeGroup(currentCallRef);
+    }catch(err){ showToast('Нет доступа к медиа','error'); cleanup('error'); }
+  }
+
+  async function acceptGroup(){
+    const snap = await currentCallRef.once('value'); const d = snap.val(); if(!d){ cleanup('cancel'); return; }
+    const hostUid = d.host; const hostPeer = d.peers?.[state.currentUser.id]; if(!hostPeer?.offer){ cleanup('cancel'); return; }
+    const pc = createPeerFor('g_'+hostUid, hostUid, d.hostName||hostUid, false);
+    localStream.getTracks().forEach(tr=>pc.addTrack(tr, localStream));
+    await pc.setRemoteDescription(new RTCSessionDescription(hostPeer.offer));
+    const ans = await pc.createAnswer(); ans.sdp = tuneSdp(ans.sdp); await pc.setLocalDescription(ans);
+    await currentCallRef.child(`peers/${state.currentUser.id}/answer`).set({ type: ans.type, sdp: ans.sdp });
+    currentCallRef.child(`peers/${hostUid}/candidates`).on('child_added', s=>{ const c = s.val(); if(c && pc) pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{}); });
+    await currentCallRef.child('members/'+state.currentUser.id).update({ joined: true, ts: Date.now() });
+    db.ref('users/'+state.currentUser.id).update({ status:'in_call' });
+    if(isVideo){ setupView('group'); rebuildGrid(); }
+  }
+
+  function subscribeSingle(ref){
+    ref.child('status').on('value', snap=>{ const s = snap.val(); if(s==='declined' || s==='busy'){ showToast(s==='busy'?'Занято':'Отклонено','info'); cleanup('declined'); } else if(s==='ended') cleanup('ended'); });
+  }
+  function subscribeGroup(ref){
+    ref.child('status').on('value', snap=>{ if(snap.val()==='ended') cleanup('ended'); });
+    ref.child('members').on('value', snap=>{ const m = snap.val()||{}; const active = Object.keys(m).filter(uid=>uid!==state.currentUser.id && m[uid].joined); $('groupMemberCount').innerText = active.length + 1; });
+  }
+
+  function toggleMic(){ if(!localStream) return; const t = localStream.getAudioTracks()[0]; if(!t) return; t.enabled = !t.enabled; $('btnToggleMic').classList.toggle('off', !t.enabled); $('btnToggleMic').innerHTML = `<i class="fas ${t.enabled?'fa-microphone':'fa-microphone-slash'}"></i>`; }
+  function toggleCam(){ if(!localStream) return; const t = localStream.getVideoTracks()[0]; if(!t){ showToast('Камера не активна','info'); return; } t.enabled = !t.enabled; $('btnToggleCam').classList.toggle('off', !t.enabled); $('btnToggleCam').innerHTML = `<i class="fas ${t.enabled?'fa-video':'fa-video-slash'}"></i>`; }
+  async function switchCamera(){
+    if(!localStream || !isVideo){ showToast('Только в видеозвонке','info'); return; }
+    try{
+      facing = (facing === 'user') ? 'environment' : 'user';
+      const p = TRAFFIC_PRESETS[state.trafficPreset] || TRAFFIC_PRESETS.eco;
+      const newVideoStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { width: { ideal: p.videoConstraints.width.ideal }, height: { ideal: p.videoConstraints.height.ideal }, frameRate: { ideal: p.videoConstraints.frameRate.ideal, max: p.videoConstraints.frameRate.max }, facingMode: { ideal: facing } } });
+      const newTrack = newVideoStream.getVideoTracks()[0]; const oldTrack = localStream.getVideoTracks()[0];
+      for(const k in peers){ const pc = peers[k].pc; if(!pc) continue; const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video'); if(sender) await sender.replaceTrack(newTrack).catch(()=>{}); }
+      localStream.removeTrack(oldTrack); oldTrack.stop(); localStream.addTrack(newTrack); attachLocal(); if(isGroup) rebuildGrid();
+      showToast(`Камера: ${facing === 'user' ? 'фронтальная' : 'тыловая'}`, 'success');
+    }catch(e){ showToast('Не удалось переключить камеру','error'); facing = (facing === 'user') ? 'environment' : 'user'; }
+  }
+
+  async function toggleScreen(){
+    if(!localStream || !isVideo){ showToast('Только в видеозвонке','info'); return; }
+    if(!navigator.mediaDevices?.getDisplayMedia){ showToast('Не поддерживается','error'); return; }
+    try{
+      if(!isScreenSharing){ const s = await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:{ideal:12,max:15} }, audio:false }); const t = s.getVideoTracks()[0]; for(const k in peers){ const pc = peers[k].pc; if(!pc) continue; const sender = pc.getSenders().find(x=>x.track && x.track.kind==='video'); if(sender) await sender.replaceTrack(t); } $('localVideo').srcObject = s; isScreenSharing = true; $('btnShareScreen').classList.add('accent'); t.onended = ()=>toggleScreen(); }
+      else { const cam = localStream.getVideoTracks()[0]; for(const k in peers){ const pc = peers[k].pc; if(!pc) continue; const sender = pc.getSenders().find(x=>x.track && x.track.kind==='video'); if(sender && cam) await sender.replaceTrack(cam); } $('localVideo').srcObject = localStream; isScreenSharing = false; $('btnShareScreen').classList.remove('accent'); }
+    }catch(e){}
+  }
+
+  function hangup(){ if(currentCallRef){ const s = (!isCaller && !acceptedAt) ? 'declined' : 'ended'; currentCallRef.child('status').set(s).catch(()=>{}); } cleanup('hangup'); }
+  async function cleanup(reason){
+    stopTones(); if(recordingActive){ try{ await CallRecorder.stop(); }catch(e){} recordingActive=false; }
+    if(acceptedAt){ const dur = Math.floor((Date.now()-acceptedAt)/1000), dir = isCaller ? 'outgoing' : 'incoming'; if(isGroup) addHistory({ uid:'__group__', name:`Группа (${memberOrder.length+1})`, type: isVideo?'video':'audio', direction: dir, durationSec: dur, callId: currentCallId, isGroup:true, groupCount: memberOrder.length+1 }); else if(partnerUid) addHistory({ uid: partnerUid, name: partnerName, type: isVideo?'video':'audio', direction: dir, durationSec: dur, callId: currentCallId }); }
+    else if(!isCaller && partnerUid){ addHistory({ uid: partnerUid, name: partnerName, type: isVideo?'video':'audio', direction: 'missed', durationSec: 0, callId: currentCallId }); }
+    if(timer){ clearInterval(timer); timer=null; } if(statsTimer){ clearInterval(statsTimer); statsTimer=null; }
+    if(currentCallRef){ const r = currentCallRef; r.off(); setTimeout(()=>{ r.remove().catch(()=>{}); }, 1800); }
+    for(const k in peers){ try{ peers[k].pc?.close(); }catch(e){} } peers = {}; memberOrder = [];
+    if(localStream){ try{ localStream.getTracks().forEach(t=>t.stop()); }catch(e){} localStream=null; }
+    $('remoteVideo').srcObject = null; $('localVideo').srcObject = null; $('remoteAudio').srcObject = null;
+    if(state.currentUser) db.ref('users/'+state.currentUser.id).update({ status:'online' }).catch(()=>{});
+    currentCallId=null; currentCallRef=null; partnerUid=null; acceptedAt=0; lastBytes=0; lastTs=0; isScreenSharing=false; isGroup=false;
+    $('callOverlay').classList.add('hidden'); $('callOverlay').classList.remove('flex'); $('minimizedCallBar').classList.add('hidden'); $('minimizedCallBar').classList.remove('flex'); $('callTimerText').classList.add('hidden'); $('callTimerText').innerText='00:00'; $('groupBadge').classList.add('hidden');
+  }
+  async function iceRestart(){ if(!currentCallRef || !isCaller) return; for(const k in peers){ const pc = peers[k].pc; if(!pc) continue; try{ const o = await pc.createOffer({ iceRestart:true }); o.sdp = tuneSdp(o.sdp); await pc.setLocalDescription(o); const uid = peers[k].uid; const path = isGroup ? `peers/${uid}/offer` : 'offer'; await currentCallRef.child(path).set({ type: o.type, sdp: o.sdp }); }catch(e){} } showToast('ICE перезапущен','info'); }
+  function sendReaction(emoji){ if(!currentCallRef) return; currentCallRef.child('reaction').set({ emoji, ts: Date.now(), from: state.currentUser.name }).catch(()=>{}); }
+
+  return { startCall, startGroupCall, listenIncoming, acceptIncoming, hangup, toggleMic, toggleCam, switchCamera, toggleScreen, iceRestart, sendReaction, isInCall: ()=>!!currentCallId, isGroup: ()=>isGroup };
+})();
+
+/* ================== UI EVENTS ================== */
+$('authSubmitBtn').addEventListener('click', handleAuth);
+$('authPassword').addEventListener('keydown', e=>{ if(e.key==='Enter') handleAuth(); });
+
+document.querySelectorAll('.nav-tab-btn').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    state.activeTab = b.dataset.tab;
+    document.querySelectorAll('.nav-tab-btn').forEach(x=>{ const on = x.dataset.tab === state.activeTab; x.className = `nav-tab-btn py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition ${on?'bg-[color:var(--accent)]/15 text-[color:var(--accent)]':'text-slate-500'}`; });
+    if(state.activeTab !== 'history') stopAllPlay();
+    renderLeftList();
+  });
+});
+
+$('leftListContainer').addEventListener('click', e=>{
+  const a = e.target.closest('[data-call-audio]'); if(a){ e.stopPropagation(); CallEngine.startCall(a.dataset.callAudio,false); return; }
+  const v = e.target.closest('[data-call-video]'); if(v){ e.stopPropagation(); CallEngine.startCall(v.dataset.callVideo,true); return; }
+  const f = e.target.closest('[data-fav-uid]'); if(f){ e.stopPropagation(); toggleFavorite(f.dataset.favUid); return; }
+  const c = e.target.closest('[data-select-uid]'); if(c){ renderSelectedContactCard(c.dataset.selectUid); renderLeftList(); }
+});
+
+$('detailAudioCallBtn').addEventListener('click', ()=>{ if(state.selectedContactId) CallEngine.startCall(state.selectedContactId,false); });
+$('detailVideoCallBtn').addEventListener('click', ()=>{ if(state.selectedContactId) CallEngine.startCall(state.selectedContactId,true); });
+$('quickCallByNickBtn').addEventListener('click', ()=>{ const v = ($('contactSearchInput').value||'').trim(); if(!v){ showToast('Введи ник','info'); return; } CallEngine.startCall(v, false); });
+$('contactSearchInput').addEventListener('input', renderLeftList);
+
+document.querySelectorAll('.preset-card-btn').forEach(b=>{ b.addEventListener('click', ()=>{ state.trafficPreset = b.dataset.preset; localStorage.setItem(LS.preset, state.trafficPreset); updatePresetUI(); showToast(`Канал: ${TRAFFIC_PRESETS[state.trafficPreset].title}`,'success'); }); });
+$('forceTurnToggle').addEventListener('change', e=>{ state.forceTurn = e.target.checked; localStorage.setItem(LS.turn, String(state.forceTurn)); updatePresetUI(); });
+
+function openSettings(){
+  if(!state.currentUser) return;
+  $('editBioInput').value = state.currentUser.bio||''; $('editAvatarInput').value = state.currentUser.avatar||'';
+  $('modalTrafficSelect').value = state.trafficPreset; $('modalForceTurnCheck').checked = state.forceTurn;
+  $('modalRecordCallsCheck').checked = state.recordCalls; $('modalHeadphonesCheck').checked = state.headphonesMode;
+  updateAvatarPreview(state.currentUser.avatarImage, state.currentUser.avatar || state.currentUser.name.slice(0,2).toUpperCase());
+  $('settingsModal').classList.remove('hidden'); $('settingsModal').classList.add('flex');
+}
+$('openProfileEditBtn').addEventListener('click', openSettings);
+$('openSettingsBtn').addEventListener('click', openSettings);
+$('closeSettingsModalBtn').addEventListener('click', ()=>{ $('settingsModal').classList.add('hidden'); $('settingsModal').classList.remove('flex'); });
+
+let pendingAvatarDataUrl = null;
+function updateAvatarPreview(img, txt){ const pImg = $('editAvatarPreviewImg'), pTxt = $('editAvatarPreviewText'); if(img){ pImg.src = img; pImg.classList.remove('hidden'); pTxt.classList.add('hidden'); } else { pImg.classList.add('hidden'); pTxt.classList.remove('hidden'); pTxt.innerText = txt || '?'; } }
+$('avatarFileInput').addEventListener('change', async e=>{
+  const file = e.target.files?.[0]; if(!file) return; if(file.size > 20*1024*1024){ showToast('Макс 20 МБ','error'); return; }
+  try{ showToast('Сжимаю...','info'); const dataUrl = await compressAvatarImage(file); pendingAvatarDataUrl = dataUrl; updateAvatarPreview(dataUrl, null); showToast(`Готово: ${(dataUrl.length/1024).toFixed(1)} КБ`,'success'); }catch(err){ showToast(err.message,'error'); }
+  e.target.value = '';
+});
+$('clearAvatarBtn').addEventListener('click', ()=>{ pendingAvatarDataUrl = null; updateAvatarPreview(null, state.currentUser?.avatar || '?'); });
+
+$('saveSettingsBtn').addEventListener('click', async ()=>{
+  if(!state.currentUser) return;
+  const av = ($('editAvatarInput').value||'').trim().toUpperCase(), bio = ($('editBioInput').value||'').trim();
+  state.trafficPreset = $('modalTrafficSelect').value; state.forceTurn = $('modalForceTurnCheck').checked;
+  state.recordCalls = $('modalRecordCallsCheck').checked; state.headphonesMode = $('modalHeadphonesCheck').checked;
+  localStorage.setItem(LS.preset, state.trafficPreset); localStorage.setItem(LS.turn, String(state.forceTurn)); localStorage.setItem(LS.record, String(state.recordCalls)); localStorage.setItem(LS.headph, String(state.headphonesMode));
+  const update = { avatar: av || state.currentUser.name.slice(0,2).toUpperCase(), bio };
+  if(pendingAvatarDataUrl) update.avatarImage = pendingAvatarDataUrl; else if(state.currentUser.avatarImage) update.avatarImage = state.currentUser.avatarImage;
+  await db.ref('users/'+state.currentUser.id).update(update);
+  state.currentUser = { ...state.currentUser, ...update };
+  saveProfileLocal(state.currentUser, localStorage.getItem(LS.remember)==='true');
+  updateMyHeaderUI(); updatePresetUI(); $('settingsModal').classList.add('hidden'); $('settingsModal').classList.remove('flex'); pendingAvatarDataUrl = null; showToast('Сохранено','success');
+});
+
+/* --- ФИКС УДАЛЕНИЯ АККАУНТА (Полное вычищение из базы) --- */
+$('deleteAccountBtn').addEventListener('click', async ()=>{
+  if(!state.currentUser) return;
+  const ok = await confirmDialog({ title:'Удалить аккаунт?', message:'Аккаунт, история и записи будут удалены безвозвратно.', okText:'Удалить' });
+  if(!ok) return;
+  try{
+    if(CallEngine.isInCall()) CallEngine.hangup();
+    stopAllPlay(); await RecordingStore.clear();
+    
+    // 1. Отключаем слушатель пользователей, чтобы не было кэша
+    if(usersRef) { usersRef.off(); usersRef = null; }
+    
+    // 2. Удаляем профиль из базы
+    await db.ref('users/'+state.currentUser.id).remove();
+    
+    // 3. Удаляем из избранного у всех остальных
+    const allUsers = Object.keys(state.users);
+    for (const uid of allUsers) {
+      if (uid !== state.currentUser.id) {
+        await db.ref('users/'+uid+'/favorites/'+state.currentUser.id).remove().catch(()=>{});
+      }
+    }
+
+    // 4. Чистим локально
+    localStorage.removeItem('dc_history'); localStorage.removeItem('dc_favorites'); clearProfileLocal();
+    showToast('Аккаунт удалён навсегда','success');
+    setTimeout(()=>location.reload(), 800);
+  }catch(e){ showToast('Ошибка: '+e.message,'error'); }
+});
+
+$('logoutAppBtn').addEventListener('click', async ()=>{
+  const ok = await confirmDialog({ title:'Выход', message:'Выйти из профиля?' }); if(!ok) return;
+  if(CallEngine.isInCall()) CallEngine.hangup(); stopAllPlay();
+  if(state.currentUser) await db.ref('users/'+state.currentUser.id).update({ status:'offline', lastSeen: Date.now() });
+  clearProfileLocal(); location.reload();
+});
+
+$('clearRamCacheBtn').addEventListener('click', async ()=>{ const ok = await confirmDialog({ title:'Очистить всё?', message:'Журнал и записи будут удалены.' }); if(!ok) return; stopAllPlay(); await RecordingStore.clear(); state.callHistory = []; localStorage.removeItem('dc_history'); renderLeftList(); showToast('Очищено','success'); });
+
+$('openGroupCallBtn').addEventListener('click', ()=>{
+  if(!state.currentUser) return; if(CallEngine.isInCall()){ showToast('Уже в звонке','error'); return; }
+  const list = $('groupContactsList'); const others = Object.keys(state.users).filter(u=>u!==state.currentUser.id);
+  if(!others.length){ list.innerHTML = '<p class="text-xs text-slate-500 text-center py-4">Нет пользователей</p>'; }
+  else { list.innerHTML = others.map(uid=>{ const u = state.users[uid] || {}; return `<label class="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 cursor-pointer"><input type="checkbox" data-group-uid="${esc(uid)}" class="group-uid-cb rounded bg-[color:var(--bg-0)] border-white/20 text-[color:var(--accent)]">${avatarHTML(u, 'w-9 h-9', 'text-sm')}<div class="flex-1 min-w-0"><div class="text-sm font-bold text-white truncate">${esc(u.name||uid)}</div><div class="text-[10px] text-slate-500">${u.status==='online'?'🟢 online':'⚫ offline'}</div></div></label>`; }).join(''); }
+  state.groupInvitees = []; state.groupType = 'audio';
+  document.querySelectorAll('.gtype-btn').forEach(b=>{ const on = b.dataset.gtype==='audio'; b.className = `gtype-btn px-3 py-1.5 rounded-lg text-xs font-bold ${on?'bg-[color:var(--accent)] text-[color:var(--bg-0)]':'bg-white/5 text-slate-400'}`; });
+  $('groupCallModal').classList.remove('hidden'); $('groupCallModal').classList.add('flex');
+});
+$('closeGroupModalBtn').addEventListener('click', ()=>{ $('groupCallModal').classList.add('hidden'); $('groupCallModal').classList.remove('flex'); });
+document.querySelectorAll('.gtype-btn').forEach(b=>{ b.addEventListener('click', ()=>{ state.groupType = b.dataset.gtype; document.querySelectorAll('.gtype-btn').forEach(x=>{ const on = x.dataset.gtype===state.groupType; x.className = `gtype-btn px-3 py-1.5 rounded-lg text-xs font-bold ${on?'bg-[color:var(--accent)] text-[color:var(--bg-0)]':'bg-white/5 text-slate-400'}`; }); }); });
+$('groupContactsList').addEventListener('change', ()=>{ let checked = Array.from(document.querySelectorAll('.group-uid-cb:checked')).map(c=>c.dataset.groupUid); if(checked.length > 3){ showToast('Максимум 3','error'); const last = checked[checked.length-1]; const cb = document.querySelector(`.group-uid-cb[data-group-uid="${last}"]`); if(cb) cb.checked=false; checked = checked.slice(0,3); } state.groupInvitees = checked; });
+$('startGroupCallBtn').addEventListener('click', ()=>{ if(!state.groupInvitees.length){ showToast('Выбери участников','error'); return; } $('groupCallModal').classList.add('hidden'); $('groupCallModal').classList.remove('flex'); CallEngine.startGroupCall(state.groupInvitees, state.groupType==='video'); });
+
+$('btnAcceptCall').addEventListener('click', ()=>CallEngine.acceptIncoming());
+$('btnHangupCall').addEventListener('click', ()=>CallEngine.hangup());
+$('btnToggleMic').addEventListener('click', ()=>CallEngine.toggleMic());
+$('btnToggleCam').addEventListener('click', ()=>CallEngine.toggleCam());
+$('btnSwitchCam').addEventListener('click', ()=>CallEngine.switchCamera());
+$('btnShareScreen').addEventListener('click', ()=>CallEngine.toggleScreen());
+$('toggleStatsDrawerBtn').addEventListener('click', ()=>{ $('callDiagnosticsDrawer').classList.toggle('hidden'); });
+$('iceRestartBtn').addEventListener('click', ()=>CallEngine.iceRestart());
+document.querySelectorAll('.react-btn').forEach(b=>b.addEventListener('click', ()=>CallEngine.sendReaction(b.dataset.react)));
+$('minimizeCallBtn').addEventListener('click', ()=>{ $('callOverlay').classList.add('hidden'); $('callOverlay').classList.remove('flex'); $('minimizedCallBar').classList.remove('hidden'); $('minimizedCallBar').classList.add('flex'); });
+$('restoreCallBtn').addEventListener('click', ()=>{ $('minimizedCallBar').classList.add('hidden'); $('minimizedCallBar').classList.remove('flex'); $('callOverlay').classList.remove('hidden'); $('callOverlay').classList.add('flex'); });
+
+(function(){
+  const pip = $('pipContainer'); if(!pip) return;
+  let drag=false, sx=0, sy=0, ol=0, ot=0;
+  pip.addEventListener('pointerdown', e=>{ drag=true; pip.setPointerCapture(e.pointerId); const r = pip.getBoundingClientRect(); sx=e.clientX; sy=e.clientY; ol=r.left; ot=r.top; pip.style.right='auto'; });
+  pip.addEventListener('pointermove', e=>{ if(!drag) return; const dx=e.clientX-sx, dy=e.clientY-sy; pip.style.left = `${Math.max(10, Math.min(window.innerWidth-pip.offsetWidth-10, ol+dx))}px`; pip.style.top = `${Math.max(10, Math.min(window.innerHeight-pip.offsetHeight-10, ot+dy))}px`; });
+  pip.addEventListener('pointerup', ()=>{ drag=false; });
+})();
+
+window.addEventListener('DOMContentLoaded', async ()=>{
+  const saved = loadProfileLocal();
+  if(saved?.user && saved.remember){
+    state.currentUser = saved.user;
+    launchApp();
+    try{ await db.ref('users/'+saved.user.id).update({ status:'online', lastSeen: Date.now() }); }catch(e){}
+  } else if(saved?.user){
+    $('authName').value = saved.user.id || ''; $('authAvatar').value = saved.user.avatar || ''; $('authRememberMe').checked = false;
+  }
+});
+</script>
+</body>
+</html>
