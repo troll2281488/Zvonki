@@ -851,10 +851,34 @@ const CallEngine = (()=>{
     }
   }
 
+  // ICE-кандидаты могут прийти раньше SDP-ответа. Не отбрасываем их:
+  // складываем в очередь и добавляем сразу после setRemoteDescription().
+  async function addRemoteCandidate(key, candidate){
+    const peer = peers[key];
+    if(!peer || !peer.pc || !candidate) return;
+    if(!peer.pc.remoteDescription || !peer.pc.remoteDescription.type){
+      peer.pendingCandidates = peer.pendingCandidates || [];
+      peer.pendingCandidates.push(candidate);
+      return;
+    }
+    try{ await peer.pc.addIceCandidate(new RTCIceCandidate(candidate)); }catch(e){ console.warn('ICE candidate error', e); }
+  }
+
+  async function flushRemoteCandidates(key){
+    const peer = peers[key];
+    if(!peer || !peer.pc || !peer.pc.remoteDescription) return;
+    const queued = (peer.pendingCandidates || []).splice(0);
+    for(const candidate of queued){
+      try{ await peer.pc.addIceCandidate(new RTCIceCandidate(candidate)); }
+      catch(e){ console.warn('Queued ICE candidate error', e); }
+    }
+  }
+
   function createPeerFor(key, uid, name, offerer){
     const pc = new RTCPeerConnection(iceConf());
     peers[key] = peers[key] || { pc, uid, name, stream: new MediaStream() };
     peers[key].pc = pc; peers[key].name = name;
+    if(!Array.isArray(peers[key].pendingCandidates)) peers[key].pendingCandidates = [];
     if(isGroup && !memberOrder.includes(uid)) memberOrder.push(uid);
 
     pc.onicecandidate = e => {
@@ -1018,6 +1042,7 @@ const CallEngine = (()=>{
         if(a && pc.signalingState !== 'stable'){
           try{
             await pc.setRemoteDescription(new RTCSessionDescription(a));
+            await flushRemoteCandidates('single');
             stopTones();
           }catch(e){ console.error(e); }
         }
@@ -1029,6 +1054,7 @@ const CallEngine = (()=>{
         if(off && off.type === 'offer'){
           try{
             await pc.setRemoteDescription(new RTCSessionDescription(off));
+            await flushRemoteCandidates('single');
             const ans = await pc.createAnswer();
             ans.sdp = tuneSdp(ans.sdp);
             await pc.setLocalDescription(ans);
@@ -1041,7 +1067,7 @@ const CallEngine = (()=>{
 
       currentCallRef.child('calleeCandidates').on('child_added', s=>{
         const c = s.val();
-        if(c && pc) pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{});
+        if(c && pc) addRemoteCandidate('single', c);
       });
 
       subscribeSingle(currentCallRef);
@@ -1069,13 +1095,13 @@ const CallEngine = (()=>{
 
     currentCallRef.child('callerCandidates').on('child_added', s=>{
       const c = s.val();
-      if(c && pc) pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{});
+      if(c && pc) addRemoteCandidate('single', c);
     });
 
     currentCallRef.child('reAnswer').on('value', async snap=>{
       const a = snap.val();
       if(a && pc.signalingState !== 'stable'){
-        try{ await pc.setRemoteDescription(new RTCSessionDescription(a)); }catch(e){}
+        try{ await pc.setRemoteDescription(new RTCSessionDescription(a)); await flushRemoteCandidates('single'); }catch(e){}
       }
     });
 
@@ -1199,12 +1225,12 @@ const CallEngine = (()=>{
         currentCallRef.child(`peers/${uid}/answer`).on('value', async s=>{
           const a = s.val();
           if(a && pc.signalingState!=='stable'){
-            try{ await pc.setRemoteDescription(new RTCSessionDescription(a)); }catch(e){}
+            try{ await pc.setRemoteDescription(new RTCSessionDescription(a)); await flushRemoteCandidates('g_'+uid); }catch(e){}
           }
         });
         currentCallRef.child(`peers/${uid}/candidates`).on('child_added', s=>{
           const c = s.val();
-          if(c && pc) pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{});
+          if(c && pc) addRemoteCandidate('g_'+uid, c);
         });
       }
       subscribeGroup(currentCallRef);
@@ -1234,7 +1260,7 @@ const CallEngine = (()=>{
     await currentCallRef.child(`peers/${state.currentUser.id}/answer`).set({ type: ans.type, sdp: ans.sdp });
     currentCallRef.child(`peers/${hostUid}/candidates`).on('child_added', s=>{
       const c = s.val();
-      if(c && pc) pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{});
+      if(c && pc) addRemoteCandidate('g_'+hostUid, c);
     });
 
     await currentCallRef.child('members/'+state.currentUser.id).update({ joined: true, ts: Date.now() });
