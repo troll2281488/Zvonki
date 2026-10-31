@@ -258,8 +258,8 @@ const ICE_SERVERS = [
 
 const TRAFFIC_PRESETS = {
   ultra: { id:'ultra', title:'Ультра', desc:'240p • 12fps', videoConstraints:{ width:{ideal:240,max:320}, height:{ideal:180,max:240}, frameRate:{ideal:12,max:15} }, videoMaxBitrate:110000, audioMaxBitrate:24000 },
-  eco: { id:'eco', title:'Эко', desc:'360p • 15fps', videoConstraints:{ width:{ideal:320,max:480}, height:{ideal:240,max:360}, frameRate:{ideal:15,max:20} }, videoMaxBitrate:220000, audioMaxBitrate:28000 },
-  hd: { id:'hd', title:'HD', desc:'480p • 24fps', videoConstraints:{ width:{ideal:640,max:854}, height:{ideal:480,max:480}, frameRate:{ideal:24,max:25} }, videoMaxBitrate:500000, audioMaxBitrate:40000 }
+  eco: { id:'eco', title:'Эко', desc:'360p • 15fps', videoConstraints:{ width:{ideal:320,max:480}, height:{ideal:240,max:360}, frameRate:{ideal:15,max:20} }, videoMaxBitrate:220000, audioMaxBitrate:32000 },
+  hd: { id:'hd', title:'HD', desc:'480p • 24fps', videoConstraints:{ width:{ideal:640,max:854}, height:{ideal:480,max:480}, frameRate:{ideal:24,max:25} }, videoMaxBitrate:500000, audioMaxBitrate:48000 }
 };
 
 /* ================== STATE ================== */
@@ -635,7 +635,18 @@ const CallEngine = (()=>{
     const p = TRAFFIC_PRESETS[state.trafficPreset] || TRAFFIC_PRESETS.eco;
     try{
       if(sdp.includes('opus/48000')){
-        sdp = sdp.replace(/a=fmtp:111 (.*)/g, `a=fmtp:111 $1;usedtx=1;useinbandfec=1;maxaveragebitrate=${p.audioMaxBitrate};stereo=0`);
+        sdp = sdp.replace(/^a=fmtp:111\\s+([^\\r\\n]*)/m, (line, raw) => {
+          const params = new Map(raw.split(';').map(part => {
+            const pair = part.trim().split('=');
+            return [pair[0].toLowerCase(), pair.length > 1 ? pair.slice(1).join('=') : ''];
+          }).filter(([key]) => key));
+          params.set('usedtx', '1');
+          params.set('useinbandfec', '1');
+          params.set('maxaveragebitrate', String(p.audioMaxBitrate));
+          params.set('stereo', '0');
+          params.set('sprop-stereo', '0');
+          return 'a=fmtp:111 ' + Array.from(params, ([key, value]) => value === '' ? key : `${key}=${value}`).join(';');
+        });
       }
     }catch(e){}
     return sdp;
@@ -647,11 +658,11 @@ const CallEngine = (()=>{
     
     // Предотвращение эха: строгие аппаратные настройки
     const audioConstraints = {
-      echoCancellation: { ideal: true, exact: true },
+      echoCancellation: { ideal: true },
       noiseSuppression: { ideal: true },
       autoGainControl: { ideal: true },
-      channelCount: 1,
-      sampleRate: 48000
+      channelCount: { ideal: 1 },
+      sampleRate: { ideal: 48000 }
     };
 
     const wantFacing = forcedFacing || facing;
@@ -834,6 +845,7 @@ const CallEngine = (()=>{
 
       if(!isGroup){
         const rv = $('remoteVideo');
+        rv.muted = true; // Звук выводится только через remoteAudio, иначе возможен двойной звук/эхо.
         rv.srcObject = stream;
         rv.play().catch(()=>{});
 
