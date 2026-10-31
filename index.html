@@ -883,7 +883,7 @@ const CallEngine = (()=>{
 
     pc.onicecandidate = e => {
       if(e.candidate && currentCallRef){
-        const path = isGroup ? `peers/${uid}/candidates` : (isCaller?'callerCandidates':'calleeCandidates');
+        const path = isGroup ? `peers/${isCaller ? uid : state.currentUser.id}/candidates` : (isCaller?'callerCandidates':'calleeCandidates');
         currentCallRef.child(path).push(e.candidate.toJSON()).catch(()=>{});
       }
     };
