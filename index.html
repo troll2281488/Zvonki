@@ -635,7 +635,7 @@ const CallEngine = (()=>{
     const p = TRAFFIC_PRESETS[state.trafficPreset] || TRAFFIC_PRESETS.eco;
     try{
       if(sdp.includes('opus/48000')){
-        sdp = sdp.replace(/^a=fmtp:111\\s+([^\\r\\n]*)/m, (line, raw) => {
+        sdp = sdp.replace(/^a=fmtp:111\s+([^\r\n]*)/m, (line, raw) => {
           const params = new Map(raw.split(';').map(part => {
             const pair = part.trim().split('=');
             return [pair[0].toLowerCase(), pair.length > 1 ? pair.slice(1).join('=') : ''];
