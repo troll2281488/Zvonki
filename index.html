@@ -683,12 +683,14 @@ const CallEngine = (()=>{
           video: videoConstraints
         });
       } catch(e2){
-        if(wantVideo){
-          showToast('Камера недоступна, подключаем только звук', 'info');
+        // Последний совместимый вариант для старых браузеров и телефонов.
+        try{
+          if(wantVideo) showToast('Камера недоступна, подключаем только звук', 'info');
           isVideo = false;
           return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        }catch(e3){
+          throw e3;
         }
-        throw e2;
       }
     }
   }
@@ -874,8 +876,13 @@ const CallEngine = (()=>{
 
         // Удаленный звук
         const ra = $('remoteAudio');
+        ra.muted = false;
+        ra.volume = 1;
         ra.srcObject = stream;
-        ra.play().catch(()=>{});
+        const audioPlay = ra.play();
+        if(audioPlay && typeof audioPlay.catch === 'function'){
+          audioPlay.catch(err=>showToast('Нет воспроизведения звука. Проверь громкость и разрешение звука браузера.','error'));
+        }
 
         // Если пришел видеотрек в обычном аудио звонке -> переключаемся в режим видео
         if(e.track.kind === 'video'){
@@ -974,13 +981,8 @@ const CallEngine = (()=>{
       attachLocal();
       if(isVideo) setupView('video');
 
-      const pc = createPeerFor('single', t, partnerName, true);
-      localStream.getTracks().forEach(tr => pc.addTrack(tr, localStream));
-
-      const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:true });
-      offer.sdp = tuneSdp(offer.sdp);
-      await pc.setLocalDescription(offer);
-
+      // Сначала создаём запись вызова. Иначе ICE-кандидаты, появившиеся
+      // во время setLocalDescription(), терялись до назначения currentCallRef.
       currentCallRef = db.ref('calls/'+currentCallId);
       await currentCallRef.set({
         from: state.currentUser.id,
@@ -990,9 +992,22 @@ const CallEngine = (()=>{
         to: t,
         type: isVideo ? 'video' : 'audio',
         preset: state.trafficPreset,
-        status: 'ringing',
-        createdAt: Date.now(),
-        offer: { type: offer.type, sdp: offer.sdp }
+        status: 'preparing',
+        createdAt: Date.now()
+      });
+
+      const pc = createPeerFor('single', t, partnerName, true);
+      localStream.getTracks().forEach(tr => pc.addTrack(tr, localStream));
+
+      const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:true });
+      offer.sdp = tuneSdp(offer.sdp);
+      await pc.setLocalDescription(offer);
+
+      // Публикуем offer последним: входящий абонент увидит вызов,
+      // только когда сигнализация и ICE уже готовы принимать кандидаты.
+      await currentCallRef.update({
+        offer: { type: offer.type, sdp: offer.sdp },
+        status: 'ringing'
       });
 
       db.ref('users/'+state.currentUser.id).update({ status:'in_call' });
