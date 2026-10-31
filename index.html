@@ -1104,10 +1104,10 @@ const CallEngine = (()=>{
     if(!state.currentUser) return;
     if(incomingRef) incomingRef.off();
     incomingRef = db.ref('calls').orderByChild('to').equalTo(state.currentUser.id);
-    incomingRef.on('child_added', snap=>{
+    const handleIncomingCall = snap=>{
       const d = snap.val(); if(!d || d.status!=='ringing') return;
       if(Date.now()-(d.createdAt||0) > 90000){ snap.ref.remove().catch(()=>{}); return; }
-      if(currentCallId){ snap.ref.child('status').set('busy'); return; }
+      if(currentCallId){ if(currentCallId!==snap.key) snap.ref.child('status').set('busy'); return; }
 
       currentCallId = snap.key;
       currentCallRef = snap.ref;
@@ -1120,7 +1120,11 @@ const CallEngine = (()=>{
       showCallScreen({ name: partnerName, avatarImage: d.fromAvatarImage, avatarText: d.fromAvatar, incoming:true });
       startRingtone();
       subscribeSingle(currentCallRef);
-    });
+    };
+    // Вызов сначала создаётся со статусом preparing, затем становится ringing.
+    // Поэтому обязательно обрабатываем и child_changed, иначе входящий экран не появится.
+    incomingRef.on('child_added', handleIncomingCall);
+    incomingRef.on('child_changed', handleIncomingCall);
 
     if(groupIncomingRef) groupIncomingRef.off();
     groupIncomingRef = db.ref('groupCalls').orderByChild('status').equalTo('ringing');
